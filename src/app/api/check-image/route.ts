@@ -7,11 +7,12 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get('image') as File;
+    const file = formData.get('file') as File;
     const sceneJson = formData.get('scene') as string;
+    const fileType = formData.get('fileType') as string;
 
     if (!file) {
-      return NextResponse.json({ error: 'No image provided' }, { status: 400 });
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
     if (!sceneJson) {
@@ -20,18 +21,20 @@ export async function POST(request: NextRequest) {
 
     const scene: Scene = JSON.parse(sceneJson);
 
-    // 画像をbase64に変換
+    // ファイルをbase64に変換
     const bytes = await file.arrayBuffer();
     const base64 = Buffer.from(bytes).toString('base64');
 
     // MIMEタイプを取得
-    const mimeType = file.type || 'image/jpeg';
+    const mimeType = file.type || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg');
+    const isPdf = fileType === 'pdf' || mimeType === 'application/pdf';
 
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-preview-05-06' });
 
+    const fileTypeText = isPdf ? 'PDF広告' : '画像';
     const prompt = `
-あなたは不動産広告の画像審査の専門家です。
-添付された画像が「${scene.name}」の写真として適切かどうかを判定してください。
+あなたは不動産広告の審査の専門家です。
+添付された${fileTypeText}が「${scene.name}」として適切かどうかを判定してください。
 
 【シーン情報】
 - シーン名: ${scene.name}
@@ -47,10 +50,10 @@ export async function POST(request: NextRequest) {
 }
 
 判定ポイント：
-1. 画像が指定されたシーン（${scene.name}）を正しく撮影しているか
+1. ${fileTypeText}が指定されたシーン（${scene.name}）の内容を正しく表しているか
 2. 判定基準を満たしているか
-3. 不動産広告として適切な品質か（明るさ、構図、清潔感など）
-4. 不適切な写り込み（個人情報、生活感のある物など）がないか
+3. 不動産広告として適切な品質か${isPdf ? '（表示の正確性、法令遵守など）' : '（明るさ、構図、清潔感など）'}
+4. 不適切な${isPdf ? '表記や誤解を招く表現' : '写り込み（個人情報、生活感のある物など）'}がないか
 `;
 
     const result = await model.generateContent([
@@ -78,9 +81,9 @@ export async function POST(request: NextRequest) {
       ...checkResult,
     });
   } catch (error) {
-    console.error('Image check error:', error);
+    console.error('File check error:', error);
     return NextResponse.json(
-      { error: 'Failed to check image' },
+      { error: 'Failed to check file' },
       { status: 500 }
     );
   }

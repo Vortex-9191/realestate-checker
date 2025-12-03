@@ -83,8 +83,9 @@ const TypewriterText = ({
 
 export default function RealEstateChecker() {
   const [appState, setAppState] = useState<AppState>('initial');
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [selectedScene, setSelectedScene] = useState<Scene | null>(null);
   const [checkResult, setCheckResult] = useState<ImageCheckResult | null>(null);
@@ -137,52 +138,67 @@ export default function RealEstateChecker() {
     []
   );
 
-  // 画像アップロード処理
+  // ファイルアップロード処理（画像・PDF両対応）
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
-      if (!file || !file.type.startsWith('image/')) {
-        setError('画像ファイルを選択してください');
+      if (!file) {
+        setError('ファイルを選択してください');
+        return;
+      }
+
+      const isImage = file.type.startsWith('image/');
+      const isPdf = file.type === 'application/pdf';
+
+      if (!isImage && !isPdf) {
+        setError('画像またはPDFファイルを選択してください');
         return;
       }
 
       setError(null);
-      setImageFile(file);
+      setUploadedFile(file);
+      setFileType(isImage ? 'image' : 'pdf');
 
       // プレビュー生成
       const reader = new FileReader();
       reader.onload = (e) => {
-        setImagePreview(e.target?.result as string);
+        setPreviewUrl(e.target?.result as string);
       };
       reader.readAsDataURL(file);
 
       setAppState('select_scene');
-      addMessage('ai', `画像「${file.name}」を受け付けました。\n判定するシーンを選択してください。`, true);
+      const fileTypeText = isImage ? '画像' : 'PDF';
+      addMessage('ai', `${fileTypeText}「${file.name}」を受け付けました。\n判定するシーンを選択してください。`, true);
     },
     [addMessage]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.gif'] },
+    accept: {
+      'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+      'application/pdf': ['.pdf'],
+    },
     multiple: false,
     disabled: appState !== 'initial',
   });
 
   // シーン選択して判定実行
   const handleSceneSelect = async (scene: Scene) => {
-    if (!imageFile) return;
+    if (!uploadedFile) return;
 
     setSelectedScene(scene);
     addMessage('user', `「${scene.name}」で判定します。`);
     setAppState('analyzing');
 
     try {
-      addMessage('ai', `「${scene.name}」の基準で画像を判定中...`, true);
+      const fileTypeText = fileType === 'pdf' ? 'PDF' : '画像';
+      addMessage('ai', `「${scene.name}」の基準で${fileTypeText}を判定中...`, true);
 
       const formData = new FormData();
-      formData.append('image', imageFile);
+      formData.append('file', uploadedFile);
       formData.append('scene', JSON.stringify(scene));
+      formData.append('fileType', fileType || 'image');
 
       const response = await fetch('/api/check-image', {
         method: 'POST',
@@ -190,7 +206,7 @@ export default function RealEstateChecker() {
       });
 
       if (!response.ok) {
-        throw new Error('画像判定に失敗しました');
+        throw new Error(`${fileTypeText}判定に失敗しました`);
       }
 
       const result: ImageCheckResult = await response.json();
@@ -248,8 +264,9 @@ export default function RealEstateChecker() {
   // リセット
   const handleReset = () => {
     setAppState('initial');
-    setImageFile(null);
-    setImagePreview(null);
+    setUploadedFile(null);
+    setFileType(null);
+    setPreviewUrl(null);
     setSelectedScene(null);
     setCheckResult(null);
     setMessages([]);
@@ -332,10 +349,10 @@ export default function RealEstateChecker() {
           <header className="flex justify-between items-end mb-6 flex-shrink-0">
             <div>
               <h2 className="text-2xl font-light tracking-tight text-black mb-1">
-                画像 <span className="font-semibold">コンプライアンスチェック</span>
+                広告 <span className="font-semibold">コンプライアンスチェック</span>
               </h2>
               <p className="text-xs text-zinc-400 font-mono uppercase">
-                {imageFile ? imageFile.name : '画像ファイルをアップロード'}
+                {uploadedFile ? uploadedFile.name : '画像・PDFファイルをアップロード'}
               </p>
             </div>
             {checkResult && (
@@ -394,13 +411,13 @@ export default function RealEstateChecker() {
                   />
                 </div>
                 <p className="text-2xl font-light text-zinc-900">
-                  {isDragActive ? 'ドロップしてアップロード' : '画像をアップロード'}
+                  {isDragActive ? 'ドロップしてアップロード' : 'ファイルをアップロード'}
                 </p>
                 <p className="text-zinc-400 mt-2 text-sm">
                   ドラッグ＆ドロップ または クリックして選択
                 </p>
                 <p className="text-zinc-300 mt-1 text-xs">
-                  JPG, PNG, WebP, GIF に対応
+                  JPG, PNG, WebP, GIF, PDF に対応
                 </p>
                 {error && (
                   <div className="mt-4 px-4 py-2 bg-red-50 text-red-600 rounded-lg flex items-center gap-2">
@@ -411,14 +428,22 @@ export default function RealEstateChecker() {
               </div>
             )}
 
-            {/* Image Preview */}
-            {imagePreview && appState !== 'initial' && (
+            {/* File Preview */}
+            {previewUrl && appState !== 'initial' && (
               <div className="absolute inset-0 flex items-center justify-center bg-zinc-100 p-8">
-                <img
-                  src={imagePreview}
-                  alt="Preview"
-                  className="max-w-full max-h-full object-contain rounded-xl shadow-lg"
-                />
+                {fileType === 'image' ? (
+                  <img
+                    src={previewUrl}
+                    alt="Preview"
+                    className="max-w-full max-h-full object-contain rounded-xl shadow-lg"
+                  />
+                ) : (
+                  <iframe
+                    src={previewUrl}
+                    className="w-full h-full rounded-xl shadow-lg"
+                    title="PDF Preview"
+                  />
+                )}
               </div>
             )}
 
