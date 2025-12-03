@@ -369,7 +369,7 @@ export default function RealEstateChecker() {
             </span>
           </div>
           <span className="text-[10px] text-zinc-400 font-medium tracking-widest pl-8 uppercase">
-            AI Compliance System
+            AI Guideline Check
           </span>
         </div>
 
@@ -427,7 +427,7 @@ export default function RealEstateChecker() {
           <header className="flex justify-between items-end mb-6 flex-shrink-0">
             <div>
               <h2 className="text-2xl font-light tracking-tight text-black mb-1">
-                広告 <span className="font-semibold">コンプライアンスチェック</span>
+                広告 <span className="font-semibold">ガイドラインチェック</span>
               </h2>
               <p className="text-xs text-zinc-400 font-mono uppercase">
                 {uploadedFile ? uploadedFile.name : '画像・PDFファイルをアップロード'}

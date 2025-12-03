@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: '不動産広告チェッカー | AI Compliance System',
-  description: 'AIによる不動産広告のコンプライアンスチェックツール',
+  title: '不動産広告チェッカー | AI Guideline Check System',
+  description: 'AIによる不動産広告のガイドラインチェックツール',
 };
 
 export default function RootLayout({
