@@ -11,10 +11,11 @@ import {
   XCircle,
   Loader2,
   ArrowRight,
-  FileImage,
+  FileText,
 } from 'lucide-react';
 import { AppState, Scene, ImageCheckResult, Message } from '@/types';
 import Logo from './Logo';
+import PdfViewer from './PdfViewer';
 
 // Gemini API クライアント（クライアントサイド）
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '');
@@ -25,8 +26,6 @@ const GAS_URL = process.env.NEXT_PUBLIC_GAS_URL || '';
 export default function RealEstateChecker() {
   const [appState, setAppState] = useState<AppState>('initial');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [sceneTypes, setSceneTypes] = useState<string[]>([]);
   const [selectedSceneType, setSelectedSceneType] = useState<string | null>(null);
@@ -126,7 +125,7 @@ export default function RealEstateChecker() {
     []
   );
 
-  // ファイルアップロード処理
+  // ファイルアップロード処理（PDFのみ）
   const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
   const onDrop = useCallback(
@@ -137,11 +136,8 @@ export default function RealEstateChecker() {
         return;
       }
 
-      const isImage = file.type.startsWith('image/');
-      const isPdf = file.type === 'application/pdf';
-
-      if (!isImage && !isPdf) {
-        setError('画像またはPDFファイルを選択してください');
+      if (file.type !== 'application/pdf') {
+        setError('PDFファイルを選択してください');
         return;
       }
 
@@ -152,16 +148,8 @@ export default function RealEstateChecker() {
 
       setError(null);
       setUploadedFile(file);
-      setFileType(isImage ? 'image' : 'pdf');
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPreviewUrl(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-
       setAppState('select_scene');
-      addMessage('ai', `ファイルを受け付けました。シーンを選択してください。`, true);
+      addMessage('ai', `PDFを受け付けました。シーンを選択してください。`, true);
     },
     [addMessage]
   );
@@ -169,7 +157,6 @@ export default function RealEstateChecker() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
       'application/pdf': ['.pdf'],
     },
     multiple: false,
@@ -198,17 +185,14 @@ export default function RealEstateChecker() {
     setAppState('analyzing');
 
     try {
-      const fileTypeText = fileType === 'pdf' ? 'PDF' : '画像';
       addMessage('ai', `判定中...`, true);
 
       const base64 = await fileToBase64(uploadedFile);
-      const mimeType = uploadedFile.type || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg');
-
       const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
       const prompt = `
 あなたは不動産広告（CG・パース画像）の審査の専門家です。
-添付された${fileTypeText}について、以下のチェック項目を判定してください。
+添付されたPDFについて、以下のチェック項目を判定してください。
 
 【チェック情報】
 - シーン種別: ${scene.sceneType}
@@ -238,7 +222,7 @@ export default function RealEstateChecker() {
         prompt,
         {
           inlineData: {
-            mimeType,
+            mimeType: 'application/pdf',
             data: base64,
           },
         },
@@ -312,8 +296,6 @@ export default function RealEstateChecker() {
   const handleReset = () => {
     setAppState('initial');
     setUploadedFile(null);
-    setFileType(null);
-    setPreviewUrl(null);
     setSelectedSceneType(null);
     setSelectedScene(null);
     setCheckResult(null);
@@ -346,7 +328,7 @@ export default function RealEstateChecker() {
             広告ガイドライン<span className="font-medium">チェックシステム</span>
           </h1>
           <p className="text-gray-500 text-sm">
-            CG・パース画像のガイドライン適合性をAIが判定します
+            PDF広告のガイドライン適合性をAIが判定します
           </p>
         </div>
 
@@ -366,13 +348,10 @@ export default function RealEstateChecker() {
                 <input {...getInputProps()} />
                 <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragActive ? 'text-red-500' : 'text-gray-300'}`} />
                 <p className="text-lg text-gray-700 mb-2">
-                  {isDragActive ? 'ドロップしてアップロード' : 'ファイルをアップロード'}
+                  {isDragActive ? 'ドロップしてアップロード' : 'PDFをアップロード'}
                 </p>
                 <p className="text-sm text-gray-400">
                   ドラッグ＆ドロップ または クリック
-                </p>
-                <p className="text-xs text-gray-300 mt-2">
-                  対応形式: JPG, PNG, WebP, GIF, PDF
                 </p>
                 {error && (
                   <p className="mt-4 text-sm text-red-500">{error}</p>
@@ -380,36 +359,14 @@ export default function RealEstateChecker() {
               </div>
             )}
 
-            {/* Preview */}
-            {previewUrl && appState !== 'initial' && (
+            {/* PDF Preview */}
+            {uploadedFile && appState !== 'initial' && (
               <div className="relative">
-                <div className="bg-gray-100 rounded-lg overflow-hidden">
-                  {fileType === 'image' ? (
-                    <img
-                      src={previewUrl}
-                      alt="Preview"
-                      className="w-full h-auto"
-                    />
-                  ) : (
-                    <object
-                      data={previewUrl}
-                      type="application/pdf"
-                      className="w-full h-[500px]"
-                    >
-                      <div className="flex items-center justify-center h-[500px] bg-gray-50">
-                        <div className="text-center">
-                          <FileImage className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                          <p className="text-gray-500 text-sm">PDFプレビュー</p>
-                          <p className="text-gray-400 text-xs mt-1">{uploadedFile?.name}</p>
-                        </div>
-                      </div>
-                    </object>
-                  )}
-                </div>
+                <PdfViewer file={uploadedFile} />
 
                 {/* Result Badge */}
                 {checkResult && appState === 'complete' && (
-                  <div className="absolute top-4 left-4">
+                  <div className="absolute top-4 left-4 z-10">
                     <div
                       className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
                         checkResult.isAppropriate
@@ -432,7 +389,7 @@ export default function RealEstateChecker() {
 
                 {/* Loading Overlay */}
                 {appState === 'analyzing' && (
-                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg z-10">
                     <div className="text-center">
                       <Loader2 className="w-10 h-10 text-red-500 animate-spin mx-auto mb-3" />
                       <p className="text-gray-600">判定中...</p>
@@ -443,18 +400,16 @@ export default function RealEstateChecker() {
                 {/* Reset Button */}
                 <button
                   onClick={handleReset}
-                  className="absolute top-4 right-4 p-2 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors"
+                  className="absolute top-4 right-4 p-2 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors z-10"
                 >
                   <RotateCcw className="w-4 h-4 text-gray-600" />
                 </button>
-              </div>
-            )}
 
-            {/* File Info */}
-            {uploadedFile && (
-              <div className="mt-4 flex items-center gap-3 text-sm text-gray-500">
-                <FileImage className="w-4 h-4" />
-                <span>{uploadedFile.name}</span>
+                {/* File Info */}
+                <div className="mt-4 flex items-center gap-3 text-sm text-gray-500">
+                  <FileText className="w-4 h-4" />
+                  <span>{uploadedFile.name}</span>
+                </div>
               </div>
             )}
           </div>
@@ -602,9 +557,9 @@ export default function RealEstateChecker() {
             {appState === 'initial' && (
               <div className="flex-1 flex items-center justify-center text-center py-12">
                 <div>
-                  <FileImage className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+                  <FileText className="w-12 h-12 text-gray-200 mx-auto mb-4" />
                   <p className="text-gray-400">
-                    画像をアップロードして<br />チェックを開始
+                    PDFをアップロードして<br />チェックを開始
                   </p>
                 </div>
               </div>
