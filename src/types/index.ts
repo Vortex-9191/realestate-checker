@@ -1,3 +1,12 @@
+// シーン（撮影箇所）
+export interface Scene {
+  id: string;
+  name: string;
+  description: string;
+  criteria: string; // 判定基準
+  createdAt: Date;
+}
+
 // 広告種別
 export type AdType =
   | '売買（新築）'
@@ -13,6 +22,15 @@ export interface ChecklistItem {
   checkItem: string;
   regulation: string;
   severity: 'high' | 'medium' | 'low';
+}
+
+// 画像判定結果
+export interface ImageCheckResult {
+  scene: Scene;
+  isAppropriate: boolean;
+  confidence: number;
+  reason: string;
+  suggestions?: string[];
 }
 
 // 判定結果
@@ -36,10 +54,8 @@ export interface Message {
 export type AppState =
   | 'initial'           // 初期状態（アップロード待ち）
   | 'uploading'         // アップロード中
-  | 'analyzing_type'    // 種別解析中
-  | 'confirm_type'      // 種別確認待ち
-  | 'fetching_checklist'// チェックリスト取得中
-  | 'checking'          // 判定中
+  | 'select_scene'      // シーン選択
+  | 'analyzing'         // 判定中
   | 'complete';         // 完了
 
 // PDF解析結果
