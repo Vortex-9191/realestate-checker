@@ -4,17 +4,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
-  Upload,
-  CheckCircle2,
-  AlertTriangle,
   ChevronRight,
   RefreshCw,
   ShieldAlert,
   Building2,
   LayoutTemplate,
-  X,
   ArrowRight,
-  Settings,
   LogOut,
   AlertCircle,
   Loader2,
@@ -22,95 +17,12 @@ import {
   Camera,
 } from 'lucide-react';
 import { AppState, Scene, ImageCheckResult, Message } from '@/types';
-import SettingsPanel from './SettingsPanel';
 
 // Gemini API クライアント（クライアントサイド）
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '');
 
-// GAS URL
+// GAS URL（マスターデータ）
 const GAS_URL = process.env.NEXT_PUBLIC_GAS_URL || '';
-
-// デフォルトシーン（GASが設定されていない場合のフォールバック）
-const DEFAULT_SCENES: Scene[] = [
-  {
-    id: '1',
-    sceneType: '外観',
-    subScene: '南側外観',
-    projectName: '共通',
-    category: '植栽',
-    checkItem: '植栽が適切に配置されているか',
-    reason: '公正取引',
-    autoCheck: '○',
-    objectTags: ['tree', 'plant', 'green'],
-    notes: '季節に応じた植栽表現の確認',
-    createdAt: new Date(),
-  },
-  {
-    id: '2',
-    sceneType: '外観',
-    subScene: 'エントランス外観',
-    projectName: '共通',
-    category: '照明',
-    checkItem: '照明器具が現実的に表現されているか',
-    reason: '公正取引',
-    autoCheck: '○',
-    objectTags: ['light', 'lamp', 'illumination'],
-    notes: '夜景CGの場合は特に注意',
-    createdAt: new Date(),
-  },
-  {
-    id: '3',
-    sceneType: '内観',
-    subScene: 'リビング',
-    projectName: '共通',
-    category: '建具',
-    checkItem: '窓・ドアのサイズが実際と一致しているか',
-    reason: 'PDF内コメント',
-    autoCheck: '△',
-    objectTags: ['window', 'door', 'glass'],
-    notes: '図面との整合性確認が必要',
-    createdAt: new Date(),
-  },
-  {
-    id: '4',
-    sceneType: 'バルコニー',
-    subScene: 'バルコニー',
-    projectName: '共通',
-    category: '手摺',
-    checkItem: '手摺のデザインが実際と一致しているか',
-    reason: '公正取引',
-    autoCheck: '○',
-    objectTags: ['railing', 'balustrade', 'handrail'],
-    notes: '安全基準への適合も確認',
-    createdAt: new Date(),
-  },
-  {
-    id: '5',
-    sceneType: 'ルーフテラス',
-    subScene: 'ルーフテラス',
-    projectName: '共通',
-    category: '外構',
-    checkItem: '床材・仕上げが実際と一致しているか',
-    reason: '公正取引',
-    autoCheck: '○',
-    objectTags: ['floor', 'tile', 'deck'],
-    notes: '',
-    createdAt: new Date(),
-  },
-  {
-    id: '6',
-    sceneType: '外観',
-    subScene: '内廊下',
-    projectName: '共通',
-    category: '照明',
-    checkItem: '共用廊下の照明が適切に表現されているか',
-    reason: '公正取引',
-    autoCheck: '○',
-    objectTags: ['corridor', 'hallway', 'light'],
-    notes: '',
-    createdAt: new Date(),
-  },
-];
 
 // タイプライター風テキスト表示コンポーネント
 const TypewriterText = ({
@@ -151,24 +63,32 @@ export default function RealEstateChecker() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [loadingScenes, setLoadingScenes] = useState(false);
-  const [useGAS, setUseGAS] = useState(false);
+  const [gasError, setGasError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // GASからシーン種別を取得する関数
   const fetchSceneTypesFromGAS = async () => {
-    if (!GAS_URL) return;
+    if (!GAS_URL) {
+      setGasError('GAS URLが設定されていません。環境変数 NEXT_PUBLIC_GAS_URL を設定してください。');
+      return;
+    }
 
+    setLoadingScenes(true);
+    setGasError(null);
     try {
       const response = await fetch(`${GAS_URL}?action=getSceneTypes`);
       const data = await response.json();
       if (data.success && data.data) {
         setSceneTypes(data.data);
-        setUseGAS(true);
+      } else {
+        setGasError('シーン種別の取得に失敗しました。');
       }
     } catch (err) {
       console.error('Failed to fetch scene types from GAS:', err);
+      setGasError('スプレッドシートへの接続に失敗しました。GAS URLを確認してください。');
+    } finally {
+      setLoadingScenes(false);
     }
   };
 
@@ -177,6 +97,7 @@ export default function RealEstateChecker() {
     if (!GAS_URL) return [];
 
     setLoadingScenes(true);
+    setGasError(null);
     try {
       const response = await fetch(`${GAS_URL}?action=getScenes&sceneType=${encodeURIComponent(sceneType)}`);
       const data = await response.json();
@@ -185,57 +106,30 @@ export default function RealEstateChecker() {
       }
     } catch (err) {
       console.error('Failed to fetch scenes from GAS:', err);
+      setGasError('チェックリストの取得に失敗しました。');
     } finally {
       setLoadingScenes(false);
     }
     return [];
   };
 
-  // 初期化: localStorageまたはGASからシーンを読み込み
+  // 初期化: GASからシーン種別を読み込み
   useEffect(() => {
-    const initializeScenes = async () => {
-      // GASが設定されている場合はシーン種別を取得
-      if (GAS_URL) {
-        await fetchSceneTypesFromGAS();
-      }
-
-      // localStorageからもシーンを読み込み（フォールバック用）
-      const savedScenes = localStorage.getItem('realestate-scenes');
-      if (savedScenes) {
-        try {
-          const parsed = JSON.parse(savedScenes);
-          setScenes(parsed.map((s: Scene) => ({ ...s, createdAt: new Date(s.createdAt) })));
-        } catch {
-          setScenes(DEFAULT_SCENES);
-        }
-      } else {
-        setScenes(DEFAULT_SCENES);
-      }
-    };
-
-    initializeScenes();
+    fetchSceneTypesFromGAS();
   }, []);
-
-  // シーンをlocalStorageに保存
-  const handleScenesChange = (newScenes: Scene[]) => {
-    setScenes(newScenes);
-    localStorage.setItem('realestate-scenes', JSON.stringify(newScenes));
-  };
 
   // シーン種別選択時にGASからチェックリストを取得
   const handleSceneTypeSelect = async (sceneType: string) => {
     setSelectedSceneType(sceneType);
     addMessage('user', `「${sceneType}」を選択しました。`);
+    addMessage('ai', `「${sceneType}」のチェックリストを取得中...`, true);
 
-    if (useGAS) {
-      addMessage('ai', `「${sceneType}」のチェックリストを取得中...`, true);
-      const fetchedScenes = await fetchScenesFromGAS(sceneType);
-      if (fetchedScenes.length > 0) {
-        setScenes(fetchedScenes);
-        addMessage('ai', `${fetchedScenes.length}件のチェック項目が見つかりました。判定するチェック項目を選択してください。`, true);
-      } else {
-        addMessage('ai', 'チェック項目が見つかりませんでした。ローカルのチェック項目から選択してください。', true);
-      }
+    const fetchedScenes = await fetchScenesFromGAS(sceneType);
+    if (fetchedScenes.length > 0) {
+      setScenes(fetchedScenes);
+      addMessage('ai', `${fetchedScenes.length}件のチェック項目が見つかりました。判定するチェック項目を選択してください。`, true);
+    } else {
+      addMessage('ai', 'チェック項目が見つかりませんでした。スプレッドシートを確認してください。', true);
     }
   };
 
@@ -465,15 +359,6 @@ export default function RealEstateChecker() {
 
   return (
     <div className="flex h-screen w-full bg-white text-zinc-900 font-sans overflow-hidden">
-      {/* Settings Modal */}
-      {showSettings && (
-        <SettingsPanel
-          scenes={scenes}
-          onScenesChange={handleScenesChange}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
-
       {/* Sidebar */}
       <div className="w-72 bg-zinc-50 border-r border-zinc-200 flex flex-col py-8 px-6 flex-shrink-0">
         <div className="mb-12 pt-2 pb-4 border-b border-zinc-200/50 flex flex-col gap-1">
@@ -499,24 +384,27 @@ export default function RealEstateChecker() {
             <ChevronRight className="w-4 h-4 ml-auto" />
           </button>
 
-          <button
-            onClick={() => setShowSettings(true)}
-            className="flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-black hover:bg-zinc-100 transition-all"
-          >
-            <Settings strokeWidth={1.5} className="w-5 h-5" />
-            <span className="text-sm font-medium">シーン設定</span>
-            <span className="ml-auto text-xs bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full">
-              {scenes.length}
-            </span>
-          </button>
-
           <button className="flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-black hover:bg-zinc-100 transition-all">
             <ShieldAlert strokeWidth={1.5} className="w-5 h-5" />
             <span className="text-sm font-medium">履歴</span>
           </button>
         </nav>
 
+        {/* GAS接続ステータス */}
         <div className="mt-auto border-t border-zinc-200 pt-6">
+          <div className="px-2 mb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className={`w-2 h-2 rounded-full ${sceneTypes.length > 0 ? 'bg-green-500' : gasError ? 'bg-red-500' : 'bg-yellow-500'}`} />
+              <span className="text-xs font-medium text-zinc-600">
+                {sceneTypes.length > 0 ? 'スプレッドシート接続中' : gasError ? '接続エラー' : '接続確認中...'}
+              </span>
+            </div>
+            {sceneTypes.length > 0 && (
+              <span className="text-[10px] text-zinc-400">
+                {sceneTypes.length}件のシーン種別
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-3 px-2">
             <div className="w-10 h-10 rounded-full bg-zinc-200 flex items-center justify-center text-xs font-bold text-zinc-600">
               U
@@ -719,8 +607,8 @@ export default function RealEstateChecker() {
               </div>
             )}
 
-            {/* Scene Type Selection (GAS mode) */}
-            {appState === 'select_scene' && useGAS && !selectedSceneType && (
+            {/* Scene Type Selection */}
+            {appState === 'select_scene' && !selectedSceneType && (
               <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-lg">
                 <div className="flex items-center gap-4 mb-4">
                   <div className="p-3 bg-zinc-100 rounded-xl">
@@ -733,7 +621,18 @@ export default function RealEstateChecker() {
                 </div>
 
                 <div className="space-y-2">
-                  {sceneTypes.length === 0 ? (
+                  {gasError ? (
+                    <div className="text-center py-4 text-red-500 text-sm">
+                      <AlertCircle className="w-6 h-6 mx-auto mb-2" />
+                      <p>{gasError}</p>
+                      <button
+                        onClick={fetchSceneTypesFromGAS}
+                        className="mt-3 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-lg text-zinc-700 text-sm"
+                      >
+                        再試行
+                      </button>
+                    </div>
+                  ) : loadingScenes || sceneTypes.length === 0 ? (
                     <div className="text-center py-4 text-zinc-400 text-sm">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
                       <p>シーン種別を読み込み中...</p>
@@ -756,8 +655,8 @@ export default function RealEstateChecker() {
               </div>
             )}
 
-            {/* Scene Selection (after scene type is selected or non-GAS mode) */}
-            {appState === 'select_scene' && (!useGAS || selectedSceneType) && (
+            {/* Scene Selection (after scene type is selected) */}
+            {appState === 'select_scene' && selectedSceneType && (
               <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-lg">
                 <div className="flex items-center gap-4 mb-4">
                   <div className="p-3 bg-zinc-100 rounded-xl">
@@ -765,7 +664,7 @@ export default function RealEstateChecker() {
                   </div>
                   <div>
                     <h4 className="font-bold text-black text-sm">
-                      {selectedSceneType ? `${selectedSceneType} のチェック項目` : 'チェック項目選択'}
+                      {selectedSceneType} のチェック項目
                     </h4>
                     <p className="text-xs text-zinc-400">判定するチェック項目を選んでください</p>
                   </div>
@@ -781,14 +680,7 @@ export default function RealEstateChecker() {
                     {scenes.length === 0 ? (
                       <div className="text-center py-4 text-zinc-400 text-sm">
                         <p>チェック項目がありません</p>
-                        {!useGAS && (
-                          <button
-                            onClick={() => setShowSettings(true)}
-                            className="mt-2 text-black underline"
-                          >
-                            設定から追加
-                          </button>
-                        )}
+                        <p className="text-xs mt-1">スプレッドシートを確認してください</p>
                       </div>
                     ) : (
                       scenes.filter(s => s.autoCheck !== '×').map((scene) => (
@@ -800,7 +692,6 @@ export default function RealEstateChecker() {
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.sceneType}</span>
                                 <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.category}</span>
                                 {scene.autoCheck === '○' && (
                                   <span className="text-xs px-2 py-0.5 bg-green-100 rounded text-green-700">AI推奨</span>
@@ -819,14 +710,12 @@ export default function RealEstateChecker() {
                   </div>
                 )}
 
-                {selectedSceneType && (
-                  <button
-                    onClick={() => setSelectedSceneType(null)}
-                    className="mt-4 text-sm text-zinc-500 hover:text-black"
-                  >
-                    ← シーン種別に戻る
-                  </button>
-                )}
+                <button
+                  onClick={() => setSelectedSceneType(null)}
+                  className="mt-4 text-sm text-zinc-500 hover:text-black"
+                >
+                  ← シーン種別に戻る
+                </button>
               </div>
             )}
 
