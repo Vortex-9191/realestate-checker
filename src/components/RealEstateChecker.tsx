@@ -27,7 +27,10 @@ import SettingsPanel from './SettingsPanel';
 // Gemini API クライアント（クライアントサイド）
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '');
 
-// デフォルトシーン
+// GAS URL
+const GAS_URL = process.env.NEXT_PUBLIC_GAS_URL || '';
+
+// デフォルトシーン（GASが設定されていない場合のフォールバック）
 const DEFAULT_SCENES: Scene[] = [
   {
     id: '1',
@@ -141,33 +144,99 @@ export default function RealEstateChecker() {
   const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const [sceneTypes, setSceneTypes] = useState<string[]>([]);
+  const [selectedSceneType, setSelectedSceneType] = useState<string | null>(null);
   const [selectedScene, setSelectedScene] = useState<Scene | null>(null);
   const [checkResult, setCheckResult] = useState<ImageCheckResult | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [loadingScenes, setLoadingScenes] = useState(false);
+  const [useGAS, setUseGAS] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // localStorageからシーンを読み込み
+  // GASからシーン種別を取得する関数
+  const fetchSceneTypesFromGAS = async () => {
+    if (!GAS_URL) return;
+
+    try {
+      const response = await fetch(`${GAS_URL}?action=getSceneTypes`);
+      const data = await response.json();
+      if (data.success && data.data) {
+        setSceneTypes(data.data);
+        setUseGAS(true);
+      }
+    } catch (err) {
+      console.error('Failed to fetch scene types from GAS:', err);
+    }
+  };
+
+  // GASから特定シーン種別のチェックリストを取得
+  const fetchScenesFromGAS = async (sceneType: string) => {
+    if (!GAS_URL) return [];
+
+    setLoadingScenes(true);
+    try {
+      const response = await fetch(`${GAS_URL}?action=getScenes&sceneType=${encodeURIComponent(sceneType)}`);
+      const data = await response.json();
+      if (data.success && data.data) {
+        return data.data.map((s: Scene) => ({ ...s, createdAt: new Date() }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch scenes from GAS:', err);
+    } finally {
+      setLoadingScenes(false);
+    }
+    return [];
+  };
+
+  // 初期化: localStorageまたはGASからシーンを読み込み
   useEffect(() => {
-    const savedScenes = localStorage.getItem('realestate-scenes');
-    if (savedScenes) {
-      try {
-        const parsed = JSON.parse(savedScenes);
-        setScenes(parsed.map((s: Scene) => ({ ...s, createdAt: new Date(s.createdAt) })));
-      } catch {
+    const initializeScenes = async () => {
+      // GASが設定されている場合はシーン種別を取得
+      if (GAS_URL) {
+        await fetchSceneTypesFromGAS();
+      }
+
+      // localStorageからもシーンを読み込み（フォールバック用）
+      const savedScenes = localStorage.getItem('realestate-scenes');
+      if (savedScenes) {
+        try {
+          const parsed = JSON.parse(savedScenes);
+          setScenes(parsed.map((s: Scene) => ({ ...s, createdAt: new Date(s.createdAt) })));
+        } catch {
+          setScenes(DEFAULT_SCENES);
+        }
+      } else {
         setScenes(DEFAULT_SCENES);
       }
-    } else {
-      setScenes(DEFAULT_SCENES);
-    }
+    };
+
+    initializeScenes();
   }, []);
 
   // シーンをlocalStorageに保存
   const handleScenesChange = (newScenes: Scene[]) => {
     setScenes(newScenes);
     localStorage.setItem('realestate-scenes', JSON.stringify(newScenes));
+  };
+
+  // シーン種別選択時にGASからチェックリストを取得
+  const handleSceneTypeSelect = async (sceneType: string) => {
+    setSelectedSceneType(sceneType);
+    addMessage('user', `「${sceneType}」を選択しました。`);
+
+    if (useGAS) {
+      addMessage('ai', `「${sceneType}」のチェックリストを取得中...`, true);
+      const fetchedScenes = await fetchScenesFromGAS(sceneType);
+      if (fetchedScenes.length > 0) {
+        setScenes(fetchedScenes);
+        addMessage('ai', `${fetchedScenes.length}件のチェック項目が見つかりました。判定するチェック項目を選択してください。`, true);
+      } else {
+        addMessage('ai', 'チェック項目が見つかりませんでした。ローカルのチェック項目から選択してください。', true);
+      }
+    }
   };
 
   const scrollToBottom = () => {
@@ -387,6 +456,7 @@ export default function RealEstateChecker() {
     setUploadedFile(null);
     setFileType(null);
     setPreviewUrl(null);
+    setSelectedSceneType(null);
     setSelectedScene(null);
     setCheckResult(null);
     setMessages([]);
@@ -649,57 +719,114 @@ export default function RealEstateChecker() {
               </div>
             )}
 
-            {/* Scene Selection */}
-            {appState === 'select_scene' && (
+            {/* Scene Type Selection (GAS mode) */}
+            {appState === 'select_scene' && useGAS && !selectedSceneType && (
               <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-lg">
                 <div className="flex items-center gap-4 mb-4">
                   <div className="p-3 bg-zinc-100 rounded-xl">
                     <Camera className="w-6 h-6" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-black text-sm">シーン選択</h4>
-                    <p className="text-xs text-zinc-400">判定基準を選んでください</p>
+                    <h4 className="font-bold text-black text-sm">シーン種別選択</h4>
+                    <p className="text-xs text-zinc-400">まずシーン種別を選んでください</p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  {scenes.length === 0 ? (
+                  {sceneTypes.length === 0 ? (
                     <div className="text-center py-4 text-zinc-400 text-sm">
-                      <p>シーンが登録されていません</p>
-                      <button
-                        onClick={() => setShowSettings(true)}
-                        className="mt-2 text-black underline"
-                      >
-                        設定から追加
-                      </button>
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                      <p>シーン種別を読み込み中...</p>
                     </div>
                   ) : (
-                    scenes.filter(s => s.autoCheck !== '×').map((scene) => (
+                    sceneTypes.map((type) => (
                       <button
-                        key={scene.id}
-                        onClick={() => handleSceneSelect(scene)}
+                        key={type}
+                        onClick={() => handleSceneTypeSelect(type)}
                         className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 transition-all"
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.sceneType}</span>
-                              <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.category}</span>
-                              {scene.autoCheck === '○' && (
-                                <span className="text-xs px-2 py-0.5 bg-green-100 rounded text-green-700">AI推奨</span>
-                              )}
-                            </div>
-                            <p className="font-medium text-black">{scene.checkItem}</p>
-                            <p className="text-xs text-zinc-400 mt-1">
-                              {scene.subScene} | {scene.reason}
-                            </p>
-                          </div>
-                          <ChevronRight className="w-4 h-4 text-zinc-400 mt-1" />
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-black">{type}</span>
+                          <ChevronRight className="w-4 h-4 text-zinc-400" />
                         </div>
                       </button>
                     ))
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Scene Selection (after scene type is selected or non-GAS mode) */}
+            {appState === 'select_scene' && (!useGAS || selectedSceneType) && (
+              <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-lg">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3 bg-zinc-100 rounded-xl">
+                    <Camera className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-black text-sm">
+                      {selectedSceneType ? `${selectedSceneType} のチェック項目` : 'チェック項目選択'}
+                    </h4>
+                    <p className="text-xs text-zinc-400">判定するチェック項目を選んでください</p>
+                  </div>
+                </div>
+
+                {loadingScenes ? (
+                  <div className="text-center py-4 text-zinc-400 text-sm">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                    <p>チェックリストを取得中...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {scenes.length === 0 ? (
+                      <div className="text-center py-4 text-zinc-400 text-sm">
+                        <p>チェック項目がありません</p>
+                        {!useGAS && (
+                          <button
+                            onClick={() => setShowSettings(true)}
+                            className="mt-2 text-black underline"
+                          >
+                            設定から追加
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      scenes.filter(s => s.autoCheck !== '×').map((scene) => (
+                        <button
+                          key={scene.id}
+                          onClick={() => handleSceneSelect(scene)}
+                          className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 transition-all"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.sceneType}</span>
+                                <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.category}</span>
+                                {scene.autoCheck === '○' && (
+                                  <span className="text-xs px-2 py-0.5 bg-green-100 rounded text-green-700">AI推奨</span>
+                                )}
+                              </div>
+                              <p className="font-medium text-black">{scene.checkItem}</p>
+                              <p className="text-xs text-zinc-400 mt-1">
+                                {scene.subScene} | {scene.reason}
+                              </p>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-zinc-400 mt-1" />
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {selectedSceneType && (
+                  <button
+                    onClick={() => setSelectedSceneType(null)}
+                    className="mt-4 text-sm text-zinc-500 hover:text-black"
+                  >
+                    ← シーン種別に戻る
+                  </button>
+                )}
               </div>
             )}
 
