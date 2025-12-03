@@ -224,7 +224,7 @@ export default function RealEstateChecker() {
       const mimeType = uploadedFile.type || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg');
       const isPdf = fileType === 'pdf';
 
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-preview-05-06' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
       const prompt = `
 あなたは不動産広告の審査の専門家です。

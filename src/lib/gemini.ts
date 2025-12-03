@@ -22,7 +22,7 @@ export async function analyzePdfType(pdfBase64: string): Promise<{
   confidence: number;
   summary: string;
 }> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-preview-05-06' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
   const prompt = `
 あなたは不動産広告の専門家です。添付されたPDFファイルを分析し、以下のJSON形式で結果を返してください。
@@ -69,7 +69,7 @@ export async function checkPdfWithChecklist(
   checklist: ChecklistItem[],
   adType: AdType
 ): Promise<CheckResult[]> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-preview-05-06' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
   const checklistText = checklist
     .map((item, idx) => `${idx + 1}. [${item.category}] ${item.checkItem} (根拠: ${item.regulation})`)
@@ -132,7 +132,7 @@ export async function generateChatResponse(
   checkResults: CheckResult[],
   userMessage: string
 ): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-preview-05-06' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
   const resultsContext = checkResults
     .map((r) => `- ${r.checklistItem.checkItem}: ${r.status} (${r.detail})`)
