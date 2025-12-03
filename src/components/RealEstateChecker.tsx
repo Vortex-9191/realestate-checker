@@ -68,7 +68,15 @@ export default function RealEstateChecker() {
       const response = await fetch(`${GAS_URL}?action=getScenes&sceneType=${encodeURIComponent(sceneType)}`);
       const data = await response.json();
       if (data.success && data.data) {
-        return data.data.map((s: Scene) => ({ ...s, createdAt: new Date() }));
+        const scenes = data.data.map((s: Scene) => ({ ...s, createdAt: new Date() }));
+        // 重複排除（checkItem + category をキーに）
+        const seen = new Set<string>();
+        return scenes.filter((s: Scene) => {
+          const key = `${s.category}:${s.checkItem}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
       }
     } catch {
       setGasError('取得失敗');
