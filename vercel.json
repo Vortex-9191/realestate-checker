@@ -1,0 +1,15 @@
+{
+  "functions": {
+    "src/app/api/check-image/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/check-image",
+      "methods": ["POST"],
+      "dest": "/api/check-image"
+    }
+  ]
+}

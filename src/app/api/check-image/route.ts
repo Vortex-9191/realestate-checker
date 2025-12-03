@@ -2,15 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Scene } from '@/types';
 
-// ファイルサイズ上限を50MBに設定
-export const config = {
-  api: {
-    bodyParser: false,
-    responseLimit: false,
-  },
-};
-
-export const maxDuration = 60; // 60秒タイムアウト
+// Route Segment Config for App Router
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
 

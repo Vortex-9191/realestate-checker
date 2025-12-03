@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   Upload,
   CheckCircle2,
@@ -22,6 +23,9 @@ import {
 } from 'lucide-react';
 import { AppState, Scene, ImageCheckResult, Message } from '@/types';
 import SettingsPanel from './SettingsPanel';
+
+// Gemini API クライアント（クライアントサイド）
+const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '');
 
 // デフォルトシーン
 const DEFAULT_SCENES: Scene[] = [
@@ -139,6 +143,8 @@ export default function RealEstateChecker() {
   );
 
   // ファイルアップロード処理（画像・PDF両対応）
+  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
@@ -152,6 +158,11 @@ export default function RealEstateChecker() {
 
       if (!isImage && !isPdf) {
         setError('画像またはPDFファイルを選択してください');
+        return;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        setError(`ファイルサイズが大きすぎます（上限: 20MB、現在: ${(file.size / 1024 / 1024).toFixed(1)}MB）`);
         return;
       }
 
@@ -183,7 +194,20 @@ export default function RealEstateChecker() {
     disabled: appState !== 'initial',
   });
 
-  // シーン選択して判定実行
+  // ファイルをBase64に変換
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // シーン選択して判定実行（クライアントサイドでGemini API呼び出し）
   const handleSceneSelect = async (scene: Scene) => {
     if (!uploadedFile) return;
 
@@ -195,37 +219,78 @@ export default function RealEstateChecker() {
       const fileTypeText = fileType === 'pdf' ? 'PDF' : '画像';
       addMessage('ai', `「${scene.name}」の基準で${fileTypeText}を判定中...`, true);
 
-      const formData = new FormData();
-      formData.append('file', uploadedFile);
-      formData.append('scene', JSON.stringify(scene));
-      formData.append('fileType', fileType || 'image');
+      // ファイルをBase64に変換
+      const base64 = await fileToBase64(uploadedFile);
+      const mimeType = uploadedFile.type || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg');
+      const isPdf = fileType === 'pdf';
 
-      const response = await fetch('/api/check-image', {
-        method: 'POST',
-        body: formData,
-      });
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-preview-05-06' });
 
-      if (!response.ok) {
-        throw new Error(`${fileTypeText}判定に失敗しました`);
+      const prompt = `
+あなたは不動産広告の審査の専門家です。
+添付された${fileTypeText}が「${scene.name}」として適切かどうかを判定してください。
+
+【シーン情報】
+- シーン名: ${scene.name}
+- 説明: ${scene.description || 'なし'}
+- 判定基準: ${scene.criteria || '特になし'}
+
+以下のJSON形式のみで回答してください（他のテキストは含めないでください）：
+{
+  "isAppropriate": true または false,
+  "confidence": 0.0〜1.0の数値,
+  "reason": "判定理由の詳細説明",
+  "suggestions": ["改善提案1", "改善提案2"]
+}
+
+判定ポイント：
+1. ${fileTypeText}が指定されたシーン（${scene.name}）の内容を正しく表しているか
+2. 判定基準を満たしているか
+3. 不動産広告として適切な品質か${isPdf ? '（表示の正確性、法令遵守など）' : '（明るさ、構図、清潔感など）'}
+4. 不適切な${isPdf ? '表記や誤解を招く表現' : '写り込み（個人情報、生活感のある物など）'}がないか
+`;
+
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            mimeType,
+            data: base64,
+          },
+        },
+      ]);
+
+      const text = result.response.text();
+
+      // JSONを抽出
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('判定結果の解析に失敗しました');
       }
 
-      const result: ImageCheckResult = await response.json();
-      setCheckResult(result);
+      const checkResultData = JSON.parse(jsonMatch[0]);
+      const resultWithScene: ImageCheckResult = {
+        scene,
+        ...checkResultData,
+      };
+
+      setCheckResult(resultWithScene);
       setAppState('complete');
 
-      const statusText = result.isAppropriate ? '適切' : '要改善';
-      const confidencePercent = Math.round(result.confidence * 100);
+      const statusText = resultWithScene.isAppropriate ? '適切' : '要改善';
+      const confidencePercent = Math.round(resultWithScene.confidence * 100);
 
       addMessage(
         'ai',
-        `判定完了しました。\n\n【結果】${statusText}（確信度: ${confidencePercent}%）\n\n【理由】\n${result.reason}${
-          result.suggestions && result.suggestions.length > 0
-            ? `\n\n【改善提案】\n${result.suggestions.map((s) => `・${s}`).join('\n')}`
+        `判定完了しました。\n\n【結果】${statusText}（確信度: ${confidencePercent}%）\n\n【理由】\n${resultWithScene.reason}${
+          resultWithScene.suggestions && resultWithScene.suggestions.length > 0
+            ? `\n\n【改善提案】\n${resultWithScene.suggestions.map((s) => `・${s}`).join('\n')}`
             : ''
         }`,
         true
       );
     } catch (err) {
+      console.error('Gemini API error:', err);
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
       setAppState('initial');
     }
