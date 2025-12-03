@@ -172,7 +172,7 @@ export default function RealEstateChecker() {
 
   // 単一チェック実行（バッチ用）
   const checkSingleScene = async (scene: Scene, base64: string): Promise<ImageCheckResult> => {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const prompt = `
 あなたは不動産広告（CG・パース画像）の審査の専門家です。
