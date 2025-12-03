@@ -391,11 +391,19 @@ export default function RealEstateChecker() {
                       className="w-full h-auto"
                     />
                   ) : (
-                    <iframe
-                      src={previewUrl}
+                    <object
+                      data={previewUrl}
+                      type="application/pdf"
                       className="w-full h-[500px]"
-                      title="PDF Preview"
-                    />
+                    >
+                      <div className="flex items-center justify-center h-[500px] bg-gray-50">
+                        <div className="text-center">
+                          <FileImage className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                          <p className="text-gray-500 text-sm">PDFプレビュー</p>
+                          <p className="text-gray-400 text-xs mt-1">{uploadedFile?.name}</p>
+                        </div>
+                      </div>
+                    </object>
                   )}
                 </div>
 
