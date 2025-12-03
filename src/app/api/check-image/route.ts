@@ -36,14 +36,19 @@ export async function POST(request: NextRequest) {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
     const fileTypeText = isPdf ? 'PDF広告' : '画像';
+    const tagsText = scene.objectTags.length > 0 ? scene.objectTags.join(', ') : 'なし';
     const prompt = `
 あなたは不動産広告の審査の専門家です。
-添付された${fileTypeText}が「${scene.name}」として適切かどうかを判定してください。
+添付された${fileTypeText}が以下のチェック項目を満たしているかを判定してください。
 
-【シーン情報】
-- シーン名: ${scene.name}
-- 説明: ${scene.description || 'なし'}
-- 判定基準: ${scene.criteria || '特になし'}
+【チェック項目情報】
+- シーン種別: ${scene.sceneType}
+- サブシーン: ${scene.subScene || 'なし'}
+- カテゴリ: ${scene.category || 'なし'}
+- チェック項目: ${scene.checkItem}
+- 根拠: ${scene.reason || 'なし'}
+- AI用タグ: ${tagsText}
+- 補足: ${scene.notes || 'なし'}
 
 以下のJSON形式のみで回答してください（他のテキストは含めないでください）：
 {
@@ -54,10 +59,11 @@ export async function POST(request: NextRequest) {
 }
 
 判定ポイント：
-1. ${fileTypeText}が指定されたシーン（${scene.name}）の内容を正しく表しているか
-2. 判定基準を満たしているか
+1. ${fileTypeText}が指定されたシーン（${scene.sceneType}${scene.subScene ? ' - ' + scene.subScene : ''}）の内容を正しく表しているか
+2. チェック項目「${scene.checkItem}」を満たしているか
 3. 不動産広告として適切な品質か${isPdf ? '（表示の正確性、法令遵守など）' : '（明るさ、構図、清潔感など）'}
 4. 不適切な${isPdf ? '表記や誤解を招く表現' : '写り込み（個人情報、生活感のある物など）'}がないか
+${tagsText !== 'なし' ? `5. AI用タグ（${tagsText}）に関連するオブジェクトが適切に表現されているか` : ''}
 `;
 
     const result = await model.generateContent([

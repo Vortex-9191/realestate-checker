@@ -1,9 +1,15 @@
-// シーン（撮影箇所）
+// シーン（チェック項目）
 export interface Scene {
   id: string;
-  name: string;
-  description: string;
-  criteria: string; // 判定基準
+  sceneType: string;       // A: シーン種別（外観/内観/バルコニー等）
+  subScene: string;        // B: サブシーン（南側外観/エントランス外観等）
+  projectName: string;     // C: 案件名
+  category: string;        // D: カテゴリ（植栽/照明/外構等）
+  checkItem: string;       // E: チェック項目
+  reason: string;          // F: 根拠（公正取引/PDF内コメント等）
+  autoCheck: '○' | '△' | '×'; // G: AI可否
+  objectTags: string[];    // H: AI用タグ
+  notes: string;           // I: 補足
   createdAt: Date;
 }
 

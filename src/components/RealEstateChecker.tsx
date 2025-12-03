@@ -31,30 +31,80 @@ const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '
 const DEFAULT_SCENES: Scene[] = [
   {
     id: '1',
-    name: 'バルコニー',
-    description: 'バルコニー・ベランダの写真',
-    criteria: 'バルコニーが明確に写っていること、洗濯物や私物が映り込んでいないこと',
+    sceneType: '外観',
+    subScene: '南側外観',
+    projectName: '共通',
+    category: '植栽',
+    checkItem: '植栽が適切に配置されているか',
+    reason: '公正取引',
+    autoCheck: '○',
+    objectTags: ['tree', 'plant', 'green'],
+    notes: '季節に応じた植栽表現の確認',
     createdAt: new Date(),
   },
   {
     id: '2',
-    name: 'リビング',
-    description: 'リビング・居間の写真',
-    criteria: '部屋全体が見渡せること、明るく清潔感があること',
+    sceneType: '外観',
+    subScene: 'エントランス外観',
+    projectName: '共通',
+    category: '照明',
+    checkItem: '照明器具が現実的に表現されているか',
+    reason: '公正取引',
+    autoCheck: '○',
+    objectTags: ['light', 'lamp', 'illumination'],
+    notes: '夜景CGの場合は特に注意',
     createdAt: new Date(),
   },
   {
     id: '3',
-    name: '外観',
-    description: '建物外観の写真',
-    criteria: '建物全体が写っていること、天候が良いこと',
+    sceneType: '内観',
+    subScene: 'リビング',
+    projectName: '共通',
+    category: '建具',
+    checkItem: '窓・ドアのサイズが実際と一致しているか',
+    reason: 'PDF内コメント',
+    autoCheck: '△',
+    objectTags: ['window', 'door', 'glass'],
+    notes: '図面との整合性確認が必要',
     createdAt: new Date(),
   },
   {
     id: '4',
-    name: 'キッチン',
-    description: 'キッチン・台所の写真',
-    criteria: 'キッチン設備が確認できること、清潔感があること',
+    sceneType: 'バルコニー',
+    subScene: 'バルコニー',
+    projectName: '共通',
+    category: '手摺',
+    checkItem: '手摺のデザインが実際と一致しているか',
+    reason: '公正取引',
+    autoCheck: '○',
+    objectTags: ['railing', 'balustrade', 'handrail'],
+    notes: '安全基準への適合も確認',
+    createdAt: new Date(),
+  },
+  {
+    id: '5',
+    sceneType: 'ルーフテラス',
+    subScene: 'ルーフテラス',
+    projectName: '共通',
+    category: '外構',
+    checkItem: '床材・仕上げが実際と一致しているか',
+    reason: '公正取引',
+    autoCheck: '○',
+    objectTags: ['floor', 'tile', 'deck'],
+    notes: '',
+    createdAt: new Date(),
+  },
+  {
+    id: '6',
+    sceneType: '外観',
+    subScene: '内廊下',
+    projectName: '共通',
+    category: '照明',
+    checkItem: '共用廊下の照明が適切に表現されているか',
+    reason: '公正取引',
+    autoCheck: '○',
+    objectTags: ['corridor', 'hallway', 'light'],
+    notes: '',
     createdAt: new Date(),
   },
 ];
@@ -212,12 +262,13 @@ export default function RealEstateChecker() {
     if (!uploadedFile) return;
 
     setSelectedScene(scene);
-    addMessage('user', `「${scene.name}」で判定します。`);
+    addMessage('user', `「${scene.sceneType} - ${scene.checkItem}」で判定します。`);
     setAppState('analyzing');
 
     try {
       const fileTypeText = fileType === 'pdf' ? 'PDF' : '画像';
-      addMessage('ai', `「${scene.name}」の基準で${fileTypeText}を判定中...`, true);
+      const sceneLabel = `${scene.sceneType} - ${scene.subScene}`;
+      addMessage('ai', `「${sceneLabel}」の基準で${fileTypeText}を判定中...`, true);
 
       // ファイルをBase64に変換
       const base64 = await fileToBase64(uploadedFile);
@@ -227,13 +278,17 @@ export default function RealEstateChecker() {
       const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
       const prompt = `
-あなたは不動産広告の審査の専門家です。
-添付された${fileTypeText}が「${scene.name}」として適切かどうかを判定してください。
+あなたは不動産広告（CG・パース画像）の審査の専門家です。
+添付された${fileTypeText}について、以下のチェック項目を判定してください。
 
-【シーン情報】
-- シーン名: ${scene.name}
-- 説明: ${scene.description || 'なし'}
-- 判定基準: ${scene.criteria || '特になし'}
+【チェック情報】
+- シーン種別: ${scene.sceneType}
+- サブシーン: ${scene.subScene}
+- カテゴリ: ${scene.category}
+- チェック項目: ${scene.checkItem}
+- 根拠: ${scene.reason}
+- AI用タグ: ${scene.objectTags.join(', ')}
+- 補足: ${scene.notes || 'なし'}
 
 以下のJSON形式のみで回答してください（他のテキストは含めないでください）：
 {
@@ -244,10 +299,10 @@ export default function RealEstateChecker() {
 }
 
 判定ポイント：
-1. ${fileTypeText}が指定されたシーン（${scene.name}）の内容を正しく表しているか
-2. 判定基準を満たしているか
-3. 不動産広告として適切な品質か${isPdf ? '（表示の正確性、法令遵守など）' : '（明るさ、構図、清潔感など）'}
-4. 不適切な${isPdf ? '表記や誤解を招く表現' : '写り込み（個人情報、生活感のある物など）'}がないか
+1. チェック項目「${scene.checkItem}」を満たしているか
+2. AI用タグ（${scene.objectTags.join(', ')}）に関連するオブジェクトが適切に表現されているか
+3. 不動産広告として誇大表現や誤解を招く表現がないか
+4. 公正取引規約に準拠しているか
 `;
 
       const result = await model.generateContent([
@@ -535,7 +590,7 @@ export default function RealEstateChecker() {
                     />
                     <div>
                       <h4 className="text-lg font-bold">
-                        {selectedScene?.name} - {checkResult.isAppropriate ? '適切' : '要改善'}
+                        {selectedScene?.sceneType} - {selectedScene?.subScene} - {checkResult.isAppropriate ? '適切' : '要改善'}
                       </h4>
                       <p className="text-xs text-zinc-400">
                         確信度: {Math.round(checkResult.confidence * 100)}%
@@ -619,22 +674,27 @@ export default function RealEstateChecker() {
                       </button>
                     </div>
                   ) : (
-                    scenes.map((scene) => (
+                    scenes.filter(s => s.autoCheck !== '×').map((scene) => (
                       <button
                         key={scene.id}
                         onClick={() => handleSceneSelect(scene)}
                         className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 transition-all"
                       >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-black">{scene.name}</p>
-                            {scene.description && (
-                              <p className="text-xs text-zinc-400 mt-0.5">
-                                {scene.description}
-                              </p>
-                            )}
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.sceneType}</span>
+                              <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.category}</span>
+                              {scene.autoCheck === '○' && (
+                                <span className="text-xs px-2 py-0.5 bg-green-100 rounded text-green-700">AI推奨</span>
+                              )}
+                            </div>
+                            <p className="font-medium text-black">{scene.checkItem}</p>
+                            <p className="text-xs text-zinc-400 mt-1">
+                              {scene.subScene} | {scene.reason}
+                            </p>
                           </div>
-                          <ChevronRight className="w-4 h-4 text-zinc-400" />
+                          <ChevronRight className="w-4 h-4 text-zinc-400 mt-1" />
                         </div>
                       </button>
                     ))
