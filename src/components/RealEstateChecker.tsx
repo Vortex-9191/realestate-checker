@@ -5,15 +5,13 @@ import { useDropzone } from 'react-dropzone';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   ChevronRight,
-  RefreshCw,
-  ShieldAlert,
-  LayoutTemplate,
-  ArrowRight,
-  LogOut,
-  AlertCircle,
+  RotateCcw,
+  Upload,
+  CheckCircle,
+  XCircle,
   Loader2,
-  Image as ImageIcon,
-  Camera,
+  ArrowRight,
+  FileImage,
 } from 'lucide-react';
 import { AppState, Scene, ImageCheckResult, Message } from '@/types';
 import Logo from './Logo';
@@ -23,32 +21,6 @@ const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '
 
 // GAS URL（マスターデータ）
 const GAS_URL = process.env.NEXT_PUBLIC_GAS_URL || '';
-
-// タイプライター風テキスト表示コンポーネント
-const TypewriterText = ({
-  text,
-  onComplete,
-}: {
-  text: string;
-  onComplete?: () => void;
-}) => {
-  const [displayedText, setDisplayedText] = useState('');
-
-  useEffect(() => {
-    let index = 0;
-    const intervalId = setInterval(() => {
-      setDisplayedText((prev) => prev + text.charAt(index));
-      index++;
-      if (index === text.length) {
-        clearInterval(intervalId);
-        if (onComplete) onComplete();
-      }
-    }, 15);
-    return () => clearInterval(intervalId);
-  }, [text, onComplete]);
-
-  return <span>{displayedText}</span>;
-};
 
 export default function RealEstateChecker() {
   const [appState, setAppState] = useState<AppState>('initial');
@@ -70,7 +42,7 @@ export default function RealEstateChecker() {
   // GASからシーン種別を取得する関数
   const fetchSceneTypesFromGAS = async () => {
     if (!GAS_URL) {
-      setGasError('GAS URLが設定されていません。環境変数 NEXT_PUBLIC_GAS_URL を設定してください。');
+      setGasError('GAS URLが設定されていません');
       return;
     }
 
@@ -82,11 +54,11 @@ export default function RealEstateChecker() {
       if (data.success && data.data) {
         setSceneTypes(data.data);
       } else {
-        setGasError('シーン種別の取得に失敗しました。');
+        setGasError('シーン種別の取得に失敗しました');
       }
     } catch (err) {
       console.error('Failed to fetch scene types from GAS:', err);
-      setGasError('スプレッドシートへの接続に失敗しました。GAS URLを確認してください。');
+      setGasError('接続エラー');
     } finally {
       setLoadingScenes(false);
     }
@@ -106,7 +78,7 @@ export default function RealEstateChecker() {
       }
     } catch (err) {
       console.error('Failed to fetch scenes from GAS:', err);
-      setGasError('チェックリストの取得に失敗しました。');
+      setGasError('チェックリストの取得に失敗しました');
     } finally {
       setLoadingScenes(false);
     }
@@ -121,15 +93,14 @@ export default function RealEstateChecker() {
   // シーン種別選択時にGASからチェックリストを取得
   const handleSceneTypeSelect = async (sceneType: string) => {
     setSelectedSceneType(sceneType);
-    addMessage('user', `「${sceneType}」を選択しました。`);
-    addMessage('ai', `「${sceneType}」のチェックリストを取得中...`, true);
+    addMessage('user', `「${sceneType}」を選択`);
 
     const fetchedScenes = await fetchScenesFromGAS(sceneType);
     if (fetchedScenes.length > 0) {
       setScenes(fetchedScenes);
-      addMessage('ai', `${fetchedScenes.length}件のチェック項目が見つかりました。判定するチェック項目を選択してください。`, true);
+      addMessage('ai', `${fetchedScenes.length}件のチェック項目があります`, true);
     } else {
-      addMessage('ai', 'チェック項目が見つかりませんでした。スプレッドシートを確認してください。', true);
+      addMessage('ai', 'チェック項目が見つかりませんでした', true);
     }
   };
 
@@ -155,8 +126,8 @@ export default function RealEstateChecker() {
     []
   );
 
-  // ファイルアップロード処理（画像・PDF両対応）
-  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+  // ファイルアップロード処理
+  const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -175,7 +146,7 @@ export default function RealEstateChecker() {
       }
 
       if (file.size > MAX_FILE_SIZE) {
-        setError(`ファイルサイズが大きすぎます（上限: 20MB、現在: ${(file.size / 1024 / 1024).toFixed(1)}MB）`);
+        setError(`ファイルサイズが大きすぎます（上限: 20MB）`);
         return;
       }
 
@@ -183,7 +154,6 @@ export default function RealEstateChecker() {
       setUploadedFile(file);
       setFileType(isImage ? 'image' : 'pdf');
 
-      // プレビュー生成
       const reader = new FileReader();
       reader.onload = (e) => {
         setPreviewUrl(e.target?.result as string);
@@ -191,8 +161,7 @@ export default function RealEstateChecker() {
       reader.readAsDataURL(file);
 
       setAppState('select_scene');
-      const fileTypeText = isImage ? '画像' : 'PDF';
-      addMessage('ai', `${fileTypeText}「${file.name}」を受け付けました。\n判定するシーンを選択してください。`, true);
+      addMessage('ai', `ファイルを受け付けました。シーンを選択してください。`, true);
     },
     [addMessage]
   );
@@ -220,23 +189,20 @@ export default function RealEstateChecker() {
     });
   };
 
-  // シーン選択して判定実行（クライアントサイドでGemini API呼び出し）
+  // シーン選択して判定実行
   const handleSceneSelect = async (scene: Scene) => {
     if (!uploadedFile) return;
 
     setSelectedScene(scene);
-    addMessage('user', `「${scene.sceneType} - ${scene.checkItem}」で判定します。`);
+    addMessage('user', `「${scene.checkItem}」で判定`);
     setAppState('analyzing');
 
     try {
       const fileTypeText = fileType === 'pdf' ? 'PDF' : '画像';
-      const sceneLabel = `${scene.sceneType} - ${scene.subScene}`;
-      addMessage('ai', `「${sceneLabel}」の基準で${fileTypeText}を判定中...`, true);
+      addMessage('ai', `判定中...`, true);
 
-      // ファイルをBase64に変換
       const base64 = await fileToBase64(uploadedFile);
       const mimeType = uploadedFile.type || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg');
-      const isPdf = fileType === 'pdf';
 
       const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
@@ -279,8 +245,6 @@ export default function RealEstateChecker() {
       ]);
 
       const text = result.response.text();
-
-      // JSONを抽出
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('判定結果の解析に失敗しました');
@@ -300,7 +264,7 @@ export default function RealEstateChecker() {
 
       addMessage(
         'ai',
-        `判定完了しました。\n\n【結果】${statusText}（確信度: ${confidencePercent}%）\n\n【理由】\n${resultWithScene.reason}${
+        `【${statusText}】確信度 ${confidencePercent}%\n\n${resultWithScene.reason}${
           resultWithScene.suggestions && resultWithScene.suggestions.length > 0
             ? `\n\n【改善提案】\n${resultWithScene.suggestions.map((s) => `・${s}`).join('\n')}`
             : ''
@@ -340,7 +304,7 @@ export default function RealEstateChecker() {
       const data = await response.json();
       addMessage('ai', data.response, true);
     } catch {
-      addMessage('ai', 'エラーが発生しました。もう一度お試しください。', false);
+      addMessage('ai', 'エラーが発生しました。', false);
     }
   };
 
@@ -358,422 +322,297 @@ export default function RealEstateChecker() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-white text-zinc-900 font-sans overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-72 bg-zinc-50 border-r border-zinc-200 flex flex-col py-8 px-6 flex-shrink-0">
-        <div className="mb-12 pt-2 pb-4 border-b border-zinc-200/50 flex flex-col gap-3">
+    <div className="min-h-screen bg-white">
+      {/* Header */}
+      <header className="border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <Logo />
-          <div>
-            <span className="text-lg font-bold text-zinc-800 tracking-tight">
-              不動産広告チェッカー
-            </span>
-            <span className="text-[10px] text-zinc-400 font-medium tracking-widest block uppercase">
-              AI Guideline Check
-            </span>
-          </div>
-        </div>
-
-        <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4 pl-3">
-          Main Menu
-        </div>
-
-        <nav className="flex flex-col gap-2 w-full">
-          <button className="flex items-center gap-3 px-4 py-3 rounded-xl bg-black text-white shadow-lg transition-all">
-            <LayoutTemplate strokeWidth={1.5} className="w-5 h-5" />
-            <span className="text-sm font-medium">画像チェック</span>
-            <ChevronRight className="w-4 h-4 ml-auto" />
-          </button>
-
-          <button className="flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-black hover:bg-zinc-100 transition-all">
-            <ShieldAlert strokeWidth={1.5} className="w-5 h-5" />
-            <span className="text-sm font-medium">履歴</span>
-          </button>
-        </nav>
-
-        {/* GAS接続ステータス */}
-        <div className="mt-auto border-t border-zinc-200 pt-6">
-          <div className="px-2 mb-4">
-            <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${sceneTypes.length > 0 ? 'bg-green-500' : gasError ? 'bg-red-500' : 'bg-yellow-500'}`} />
-              <span className="text-xs font-medium text-zinc-600">
-                {sceneTypes.length > 0 ? 'スプレッドシート接続中' : gasError ? '接続エラー' : '接続確認中...'}
+              <span className="text-xs text-gray-500">
+                {sceneTypes.length > 0 ? '接続中' : gasError ? 'エラー' : '確認中'}
               </span>
             </div>
-            {sceneTypes.length > 0 && (
-              <span className="text-[10px] text-zinc-400">
-                {sceneTypes.length}件のシーン種別
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3 px-2">
-            <div className="w-10 h-10 rounded-full bg-zinc-200 flex items-center justify-center text-xs font-bold text-zinc-600">
-              U
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-bold text-zinc-800">User</span>
-              <span className="text-xs text-zinc-400">広告担当者</span>
-            </div>
-            <button className="ml-auto text-zinc-400 hover:text-zinc-600">
-              <LogOut className="w-4 h-4" />
-            </button>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Image Preview Panel */}
-        <div className="flex-1 bg-[#F5F5F7] p-8 flex flex-col overflow-hidden">
-          <header className="flex justify-between items-end mb-6 flex-shrink-0">
-            <div>
-              <h2 className="text-2xl font-light tracking-tight text-black mb-1">
-                広告 <span className="font-semibold">ガイドラインチェック</span>
-              </h2>
-              <p className="text-xs text-zinc-400 font-mono uppercase">
-                {uploadedFile ? uploadedFile.name : '画像・PDFファイルをアップロード'}
-              </p>
-            </div>
-            {checkResult && (
-              <div className="flex items-center gap-3">
-                <div
-                  className={`px-4 py-2 rounded-full shadow-sm border flex items-center gap-2 ${
-                    checkResult.isAppropriate
-                      ? 'bg-green-50 border-green-200'
-                      : 'bg-red-50 border-red-200'
-                  }`}
-                >
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      checkResult.isAppropriate ? 'bg-green-500' : 'bg-red-500'
-                    }`}
-                  ></div>
-                  <span
-                    className={`text-xs font-medium ${
-                      checkResult.isAppropriate ? 'text-green-700' : 'text-red-700'
-                    }`}
-                  >
-                    {checkResult.isAppropriate ? '適切' : '要改善'}
-                  </span>
-                </div>
-                <div className="px-4 py-2 bg-white rounded-full shadow-sm border border-zinc-100 flex items-center gap-2">
-                  <span className="text-xs font-medium text-zinc-600">
-                    確信度: {Math.round(checkResult.confidence * 100)}%
-                  </span>
-                </div>
-              </div>
-            )}
-          </header>
+      {/* Main */}
+      <main className="max-w-7xl mx-auto px-6 py-12">
+        {/* Title Section */}
+        <div className="mb-12">
+          <h1 className="text-3xl font-light text-gray-900 mb-2">
+            広告ガイドライン<span className="font-medium">チェックシステム</span>
+          </h1>
+          <p className="text-gray-500 text-sm">
+            CG・パース画像のガイドライン適合性をAIが判定します
+          </p>
+        </div>
 
-          <div className="flex-1 bg-white rounded-3xl shadow-lg border border-zinc-100 overflow-hidden relative">
-            {/* Initial Upload State */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+          {/* Left: Upload & Preview */}
+          <div>
+            {/* Upload Area */}
             {appState === 'initial' && (
               <div
                 {...getRootProps()}
-                className={`absolute inset-0 flex flex-col items-center justify-center cursor-pointer transition-colors duration-300 ${
-                  isDragActive ? 'bg-blue-50' : 'bg-white hover:bg-zinc-50'
+                className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-all ${
+                  isDragActive
+                    ? 'border-red-500 bg-red-50'
+                    : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50'
                 }`}
               >
                 <input {...getInputProps()} />
-                <div
-                  className={`w-24 h-24 border-2 border-dashed rounded-3xl flex items-center justify-center mb-6 transition-all ${
-                    isDragActive
-                      ? 'border-blue-500 bg-blue-100'
-                      : 'border-zinc-200 hover:border-black'
-                  }`}
-                >
-                  <Camera
-                    strokeWidth={1}
-                    className={`w-10 h-10 transition-colors ${
-                      isDragActive ? 'text-blue-500' : 'text-zinc-400'
-                    }`}
-                  />
-                </div>
-                <p className="text-2xl font-light text-zinc-900">
+                <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragActive ? 'text-red-500' : 'text-gray-300'}`} />
+                <p className="text-lg text-gray-700 mb-2">
                   {isDragActive ? 'ドロップしてアップロード' : 'ファイルをアップロード'}
                 </p>
-                <p className="text-zinc-400 mt-2 text-sm">
-                  ドラッグ＆ドロップ または クリックして選択
+                <p className="text-sm text-gray-400">
+                  ドラッグ＆ドロップ または クリック
                 </p>
-                <p className="text-zinc-300 mt-1 text-xs">
-                  JPG, PNG, WebP, GIF, PDF に対応
+                <p className="text-xs text-gray-300 mt-2">
+                  対応形式: JPG, PNG, WebP, GIF, PDF
                 </p>
                 {error && (
-                  <div className="mt-4 px-4 py-2 bg-red-50 text-red-600 rounded-lg flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    <span className="text-sm">{error}</span>
-                  </div>
+                  <p className="mt-4 text-sm text-red-500">{error}</p>
                 )}
               </div>
             )}
 
-            {/* File Preview */}
+            {/* Preview */}
             {previewUrl && appState !== 'initial' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-zinc-100 p-8">
-                {fileType === 'image' ? (
-                  <img
-                    src={previewUrl}
-                    alt="Preview"
-                    className="max-w-full max-h-full object-contain rounded-xl shadow-lg"
-                  />
-                ) : (
-                  <iframe
-                    src={previewUrl}
-                    className="w-full h-full rounded-xl shadow-lg"
-                    title="PDF Preview"
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Loading State */}
-            {appState === 'analyzing' && (
-              <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
-                <Loader2 className="w-16 h-16 text-white animate-spin mb-6" />
-                <p className="text-xl font-medium text-white">判定中...</p>
-                <p className="text-white/70 mt-2 text-sm">
-                  Gemini 2.5 Pro が分析しています
-                </p>
-              </div>
-            )}
-
-            {/* Result Overlay */}
-            {checkResult && appState === 'complete' && (
-              <div className="absolute bottom-0 left-0 right-0 bg-black text-white p-6 rounded-t-3xl shadow-2xl">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-2 h-10 rounded-full ${
-                        checkResult.isAppropriate ? 'bg-green-500' : 'bg-red-500'
-                      }`}
+              <div className="relative">
+                <div className="bg-gray-100 rounded-lg overflow-hidden">
+                  {fileType === 'image' ? (
+                    <img
+                      src={previewUrl}
+                      alt="Preview"
+                      className="w-full h-auto"
                     />
-                    <div>
-                      <h4 className="text-lg font-bold">
-                        {selectedScene?.sceneType} - {selectedScene?.subScene} - {checkResult.isAppropriate ? '適切' : '要改善'}
-                      </h4>
-                      <p className="text-xs text-zinc-400">
-                        確信度: {Math.round(checkResult.confidence * 100)}%
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-zinc-300 leading-relaxed text-sm mb-4">
-                  {checkResult.reason}
-                </p>
-                {checkResult.suggestions && checkResult.suggestions.length > 0 && (
-                  <div className="bg-zinc-900 rounded-xl p-4">
-                    <p className="text-xs text-zinc-400 mb-2">改善提案</p>
-                    <ul className="space-y-1">
-                      {checkResult.suggestions.map((s, i) => (
-                        <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
-                          <span className="text-amber-500">•</span>
-                          {s}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Chat Panel */}
-        <div className="w-[400px] bg-white flex flex-col border-l border-zinc-200 flex-shrink-0">
-          <div className="h-20 border-b border-zinc-100 flex items-center justify-between px-8 flex-shrink-0">
-            <div>
-              <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest block mb-1">
-                AI Assistant
-              </span>
-              <span className="font-bold text-black text-lg">画像チェック</span>
-            </div>
-            <button
-              onClick={handleReset}
-              className="p-2 text-zinc-300 hover:text-black transition-colors"
-              title="リセット"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {messages.length === 0 && appState === 'initial' && (
-              <div className="flex flex-col items-center justify-center h-full opacity-30 space-y-4">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-100 flex items-center justify-center">
-                  <ImageIcon className="w-8 h-8 text-black" />
-                </div>
-                <p className="text-sm text-zinc-500 font-medium">
-                  画像をアップロードして開始
-                </p>
-              </div>
-            )}
-
-            {/* Scene Type Selection */}
-            {appState === 'select_scene' && !selectedSceneType && (
-              <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-lg">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="p-3 bg-zinc-100 rounded-xl">
-                    <Camera className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-black text-sm">シーン種別選択</h4>
-                    <p className="text-xs text-zinc-400">まずシーン種別を選んでください</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {gasError ? (
-                    <div className="text-center py-4 text-red-500 text-sm">
-                      <AlertCircle className="w-6 h-6 mx-auto mb-2" />
-                      <p>{gasError}</p>
-                      <button
-                        onClick={fetchSceneTypesFromGAS}
-                        className="mt-3 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-lg text-zinc-700 text-sm"
-                      >
-                        再試行
-                      </button>
-                    </div>
-                  ) : loadingScenes || sceneTypes.length === 0 ? (
-                    <div className="text-center py-4 text-zinc-400 text-sm">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                      <p>シーン種別を読み込み中...</p>
-                    </div>
                   ) : (
-                    sceneTypes.map((type) => (
-                      <button
-                        key={type}
-                        onClick={() => handleSceneTypeSelect(type)}
-                        className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 transition-all"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-black">{type}</span>
-                          <ChevronRight className="w-4 h-4 text-zinc-400" />
-                        </div>
-                      </button>
-                    ))
+                    <iframe
+                      src={previewUrl}
+                      className="w-full h-[500px]"
+                      title="PDF Preview"
+                    />
                   )}
                 </div>
-              </div>
-            )}
 
-            {/* Scene Selection (after scene type is selected) */}
-            {appState === 'select_scene' && selectedSceneType && (
-              <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-lg">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="p-3 bg-zinc-100 rounded-xl">
-                    <Camera className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-black text-sm">
-                      {selectedSceneType} のチェック項目
-                    </h4>
-                    <p className="text-xs text-zinc-400">判定するチェック項目を選んでください</p>
-                  </div>
-                </div>
-
-                {loadingScenes ? (
-                  <div className="text-center py-4 text-zinc-400 text-sm">
-                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                    <p>チェックリストを取得中...</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {scenes.length === 0 ? (
-                      <div className="text-center py-4 text-zinc-400 text-sm">
-                        <p>チェック項目がありません</p>
-                        <p className="text-xs mt-1">スプレッドシートを確認してください</p>
-                      </div>
-                    ) : (
-                      scenes.filter(s => s.autoCheck !== '×').map((scene) => (
-                        <button
-                          key={scene.id}
-                          onClick={() => handleSceneSelect(scene)}
-                          className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 transition-all"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-xs px-2 py-0.5 bg-zinc-100 rounded text-zinc-600">{scene.category}</span>
-                                {scene.autoCheck === '○' && (
-                                  <span className="text-xs px-2 py-0.5 bg-green-100 rounded text-green-700">AI推奨</span>
-                                )}
-                              </div>
-                              <p className="font-medium text-black">{scene.checkItem}</p>
-                              <p className="text-xs text-zinc-400 mt-1">
-                                {scene.subScene} | {scene.reason}
-                              </p>
-                            </div>
-                            <ChevronRight className="w-4 h-4 text-zinc-400 mt-1" />
-                          </div>
-                        </button>
-                      ))
-                    )}
+                {/* Result Badge */}
+                {checkResult && appState === 'complete' && (
+                  <div className="absolute top-4 left-4">
+                    <div
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
+                        checkResult.isAppropriate
+                          ? 'bg-green-500 text-white'
+                          : 'bg-red-500 text-white'
+                      }`}
+                    >
+                      {checkResult.isAppropriate ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : (
+                        <XCircle className="w-4 h-4" />
+                      )}
+                      {checkResult.isAppropriate ? '適切' : '要改善'}
+                      <span className="opacity-75">
+                        {Math.round(checkResult.confidence * 100)}%
+                      </span>
+                    </div>
                   </div>
                 )}
 
+                {/* Loading Overlay */}
+                {appState === 'analyzing' && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
+                    <div className="text-center">
+                      <Loader2 className="w-10 h-10 text-red-500 animate-spin mx-auto mb-3" />
+                      <p className="text-gray-600">判定中...</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reset Button */}
                 <button
-                  onClick={() => setSelectedSceneType(null)}
-                  className="mt-4 text-sm text-zinc-500 hover:text-black"
+                  onClick={handleReset}
+                  className="absolute top-4 right-4 p-2 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors"
                 >
-                  ← シーン種別に戻る
+                  <RotateCcw className="w-4 h-4 text-gray-600" />
                 </button>
               </div>
             )}
 
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex flex-col ${
-                  m.role === 'user' ? 'items-end' : 'items-start'
-                }`}
-              >
-                <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest mb-2">
-                  {m.role === 'user' ? 'You' : 'AI Assistant'}
-                </span>
-                <div
-                  className={`max-w-[90%] p-4 rounded-2xl text-sm leading-relaxed ${
-                    m.role === 'user'
-                      ? 'bg-black text-white rounded-tr-sm'
-                      : 'bg-zinc-100 text-zinc-800 rounded-tl-sm'
-                  }`}
+            {/* File Info */}
+            {uploadedFile && (
+              <div className="mt-4 flex items-center gap-3 text-sm text-gray-500">
+                <FileImage className="w-4 h-4" />
+                <span>{uploadedFile.name}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Selection & Chat */}
+          <div className="flex flex-col">
+            {/* Scene Type Selection */}
+            {appState === 'select_scene' && !selectedSceneType && (
+              <div>
+                <h3 className="text-sm font-medium text-gray-900 mb-4">
+                  シーン種別を選択
+                </h3>
+                {gasError ? (
+                  <div className="text-center py-8">
+                    <p className="text-red-500 text-sm mb-3">{gasError}</p>
+                    <button
+                      onClick={fetchSceneTypesFromGAS}
+                      className="text-sm text-gray-600 hover:text-gray-900 underline"
+                    >
+                      再試行
+                    </button>
+                  </div>
+                ) : loadingScenes ? (
+                  <div className="text-center py-8">
+                    <Loader2 className="w-6 h-6 text-gray-400 animate-spin mx-auto" />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {sceneTypes.map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => handleSceneTypeSelect(type)}
+                        className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-red-500 hover:bg-red-50 transition-all group"
+                      >
+                        <span className="text-gray-900">{type}</span>
+                        <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-red-500" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Check Item Selection */}
+            {appState === 'select_scene' && selectedSceneType && (
+              <div>
+                <button
+                  onClick={() => setSelectedSceneType(null)}
+                  className="text-sm text-gray-500 hover:text-gray-900 mb-4 flex items-center gap-1"
                 >
-                  {m.isTyping ? (
-                    <TypewriterText text={m.text} />
-                  ) : (
-                    m.text.split('\n').map((line, i) => (
-                      <React.Fragment key={i}>
-                        {line}
-                        <br />
-                      </React.Fragment>
-                    ))
-                  )}
+                  ← 戻る
+                </button>
+                <h3 className="text-sm font-medium text-gray-900 mb-4">
+                  {selectedSceneType} のチェック項目
+                </h3>
+                {loadingScenes ? (
+                  <div className="text-center py-8">
+                    <Loader2 className="w-6 h-6 text-gray-400 animate-spin mx-auto" />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {scenes.filter(s => s.autoCheck !== '×').map((scene) => (
+                      <button
+                        key={scene.id}
+                        onClick={() => handleSceneSelect(scene)}
+                        className="w-full text-left p-4 border border-gray-200 rounded-lg hover:border-red-500 hover:bg-red-50 transition-all group"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs px-2 py-0.5 bg-gray-100 rounded text-gray-600">
+                            {scene.category}
+                          </span>
+                          {scene.autoCheck === '○' && (
+                            <span className="text-xs px-2 py-0.5 bg-green-100 rounded text-green-700">
+                              AI推奨
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-900">{scene.checkItem}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {scene.subScene} | {scene.reason}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Chat / Result */}
+            {(appState === 'analyzing' || appState === 'complete') && (
+              <div className="flex-1 flex flex-col">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">
+                  判定結果
+                </h3>
+
+                {/* Messages */}
+                <div className="flex-1 space-y-4 mb-4 overflow-y-auto max-h-[400px]">
+                  {messages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`${m.role === 'user' ? 'text-right' : ''}`}
+                    >
+                      <div
+                        className={`inline-block max-w-[90%] p-4 rounded-lg text-sm ${
+                          m.role === 'user'
+                            ? 'bg-gray-900 text-white'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {m.text.split('\n').map((line, i) => (
+                          <React.Fragment key={i}>
+                            {line}
+                            {i < m.text.split('\n').length - 1 && <br />}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input */}
+                {appState === 'complete' && (
+                  <form onSubmit={handleSend} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="質問を入力..."
+                      className="flex-1 px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-red-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!input.trim()}
+                      className="px-4 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Initial State */}
+            {appState === 'initial' && (
+              <div className="flex-1 flex items-center justify-center text-center py-12">
+                <div>
+                  <FileImage className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+                  <p className="text-gray-400">
+                    画像をアップロードして<br />チェックを開始
+                  </p>
                 </div>
               </div>
-            ))}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="p-6 border-t border-zinc-100 flex-shrink-0">
-            <form onSubmit={handleSend} className="relative">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={appState === 'complete' ? '質問を入力...' : '処理中...'}
-                disabled={appState !== 'complete'}
-                className="w-full bg-zinc-50 border border-zinc-200 text-black text-sm rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-black/10 disabled:opacity-50"
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || appState !== 'complete'}
-                className="absolute right-2 top-2 p-2 bg-black text-white rounded-lg hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </form>
+            )}
           </div>
         </div>
-      </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-gray-100 mt-24">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <p className="text-xs text-gray-400 text-center">
+            © Mitsubishi Estate Residence Co., Ltd. All Rights Reserved.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
