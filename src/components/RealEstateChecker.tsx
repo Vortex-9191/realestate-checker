@@ -7,7 +7,6 @@ import {
   ChevronRight,
   RefreshCw,
   ShieldAlert,
-  Building2,
   LayoutTemplate,
   ArrowRight,
   LogOut,
@@ -17,6 +16,7 @@ import {
   Camera,
 } from 'lucide-react';
 import { AppState, Scene, ImageCheckResult, Message } from '@/types';
+import Logo from './Logo';
 
 // Gemini API クライアント（クライアントサイド）
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '');
@@ -361,16 +361,16 @@ export default function RealEstateChecker() {
     <div className="flex h-screen w-full bg-white text-zinc-900 font-sans overflow-hidden">
       {/* Sidebar */}
       <div className="w-72 bg-zinc-50 border-r border-zinc-200 flex flex-col py-8 px-6 flex-shrink-0">
-        <div className="mb-12 pt-2 pb-4 border-b border-zinc-200/50 flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-red-600" />
+        <div className="mb-12 pt-2 pb-4 border-b border-zinc-200/50 flex flex-col gap-3">
+          <Logo />
+          <div>
             <span className="text-lg font-bold text-zinc-800 tracking-tight">
               不動産広告チェッカー
             </span>
+            <span className="text-[10px] text-zinc-400 font-medium tracking-widest block uppercase">
+              AI Guideline Check
+            </span>
           </div>
-          <span className="text-[10px] text-zinc-400 font-medium tracking-widest pl-8 uppercase">
-            AI Guideline Check
-          </span>
         </div>
 
         <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4 pl-3">
