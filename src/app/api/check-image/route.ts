@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const mimeType = file.type || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg');
     const isPdf = fileType === 'pdf' || mimeType === 'application/pdf';
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
     const fileTypeText = isPdf ? 'PDF広告' : '画像';
     const prompt = `
