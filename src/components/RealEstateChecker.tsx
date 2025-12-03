@@ -305,7 +305,7 @@ export default function RealEstateChecker() {
         <div className="flex items-center gap-4">
           <Logo />
           <div className="border-l border-gray-200 pl-4">
-            <h1 className="text-sm font-semibold text-gray-900">不動産広告チェッカー</h1>
+            <h1 className="text-sm font-semibold text-gray-900">パース図ガイドラインチェッカー</h1>
             <p className="text-[10px] text-gray-500">AI Guideline Check System</p>
           </div>
         </div>
