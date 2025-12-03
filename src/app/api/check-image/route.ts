@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Scene } from '@/types';
 
+// ファイルサイズ上限を50MBに設定
+export const config = {
+  api: {
+    bodyParser: false,
+    responseLimit: false,
+  },
+};
+
+export const maxDuration = 60; // 60秒タイムアウト
+
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
 
 export async function POST(request: NextRequest) {
