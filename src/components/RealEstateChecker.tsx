@@ -229,7 +229,13 @@ export default function RealEstateChecker() {
     <div className="h-screen flex flex-col bg-white overflow-hidden">
       {/* Header */}
       <header className="border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0">
-        <Logo />
+        <div className="flex items-center gap-4">
+          <Logo />
+          <div className="border-l border-gray-200 pl-4">
+            <h1 className="text-sm font-semibold text-gray-900">不動産広告チェッカー</h1>
+            <p className="text-[10px] text-gray-500">AI Guideline Check System</p>
+          </div>
+        </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${sceneTypes.length > 0 ? 'bg-green-500' : gasError ? 'bg-red-500' : 'bg-yellow-500'}`} />
