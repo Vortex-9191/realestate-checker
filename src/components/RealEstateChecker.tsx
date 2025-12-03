@@ -12,8 +12,11 @@ import {
   Loader2,
   ArrowRight,
   FileText,
+  CheckSquare,
+  Square,
+  Play,
 } from 'lucide-react';
-import { AppState, Scene, ImageCheckResult, Message } from '@/types';
+import { AppState, Scene, ImageCheckResult, Message, BatchCheckProgress } from '@/types';
 import Logo from './Logo';
 import PdfViewer from './PdfViewer';
 
@@ -26,8 +29,9 @@ export default function RealEstateChecker() {
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [sceneTypes, setSceneTypes] = useState<string[]>([]);
   const [selectedSceneType, setSelectedSceneType] = useState<string | null>(null);
-  const [selectedScene, setSelectedScene] = useState<Scene | null>(null);
-  const [checkResult, setCheckResult] = useState<ImageCheckResult | null>(null);
+  const [selectedScenes, setSelectedScenes] = useState<Scene[]>([]);
+  const [checkResults, setCheckResults] = useState<ImageCheckResult[]>([]);
+  const [batchProgress, setBatchProgress] = useState<BatchCheckProgress | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -137,17 +141,32 @@ export default function RealEstateChecker() {
     });
   };
 
-  const handleSceneSelect = async (scene: Scene) => {
-    if (!uploadedFile) return;
-    setSelectedScene(scene);
-    setAppState('analyzing');
-    addMessage('ai', '判定中...');
+  // 複数選択のトグル
+  const toggleSceneSelection = (scene: Scene) => {
+    setSelectedScenes(prev => {
+      const exists = prev.find(s => s.id === scene.id);
+      if (exists) {
+        return prev.filter(s => s.id !== scene.id);
+      }
+      return [...prev, scene];
+    });
+  };
 
-    try {
-      const base64 = await fileToBase64(uploadedFile);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+  // 全選択/全解除
+  const toggleSelectAll = () => {
+    const availableScenes = scenes.filter(s => s.autoCheck !== '×');
+    if (selectedScenes.length === availableScenes.length) {
+      setSelectedScenes([]);
+    } else {
+      setSelectedScenes(availableScenes);
+    }
+  };
 
-      const prompt = `
+  // 単一チェック実行（バッチ用）
+  const checkSingleScene = async (scene: Scene, base64: string): Promise<ImageCheckResult> => {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+
+    const prompt = `
 あなたは不動産広告（CG・パース画像）の審査の専門家です。
 添付されたPDFについて、以下のチェック項目を判定してください。
 
@@ -163,35 +182,78 @@ export default function RealEstateChecker() {
 {
   "isAppropriate": true または false,
   "confidence": 0.0〜1.0の数値,
-  "reason": "判定理由の詳細説明",
-  "suggestions": ["改善提案1", "改善提案2"]
+  "reason": "判定理由の詳細説明（50文字以内）",
+  "suggestions": ["改善提案1"]
 }
 `;
 
-      const result = await model.generateContent([
-        prompt,
-        { inlineData: { mimeType: 'application/pdf', data: base64 } },
-      ]);
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { mimeType: 'application/pdf', data: base64 } },
+    ]);
 
-      const text = result.response.text();
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('解析失敗');
+    const text = result.response.text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('解析失敗');
 
-      const checkResultData = JSON.parse(jsonMatch[0]);
-      const resultWithScene: ImageCheckResult = { scene, ...checkResultData };
+    const checkResultData = JSON.parse(jsonMatch[0]);
+    return { scene, ...checkResultData };
+  };
 
-      setCheckResult(resultWithScene);
+  // 一括判定実行
+  const handleBatchCheck = async () => {
+    if (!uploadedFile || selectedScenes.length === 0) return;
+
+    setAppState('analyzing');
+    setCheckResults([]);
+    setBatchProgress({
+      total: selectedScenes.length,
+      current: 0,
+      currentScene: null,
+      results: [],
+    });
+
+    try {
+      const base64 = await fileToBase64(uploadedFile);
+      const results: ImageCheckResult[] = [];
+
+      for (let i = 0; i < selectedScenes.length; i++) {
+        const scene = selectedScenes[i];
+        setBatchProgress({
+          total: selectedScenes.length,
+          current: i + 1,
+          currentScene: scene,
+          results,
+        });
+
+        try {
+          const result = await checkSingleScene(scene, base64);
+          results.push(result);
+        } catch (err) {
+          console.error(`Error checking scene ${scene.id}:`, err);
+          results.push({
+            scene,
+            isAppropriate: false,
+            confidence: 0,
+            reason: '判定エラー',
+            suggestions: [],
+          });
+        }
+      }
+
+      setCheckResults(results);
+      setBatchProgress(null);
       setAppState('complete');
-      setMessages([]);
 
-      const statusText = resultWithScene.isAppropriate ? '適切' : '要改善';
-      addMessage('ai', `【${statusText}】確信度 ${Math.round(resultWithScene.confidence * 100)}%\n\n${resultWithScene.reason}${
-        resultWithScene.suggestions?.length ? `\n\n【改善提案】\n${resultWithScene.suggestions.map(s => `・${s}`).join('\n')}` : ''
-      }`);
+      // サマリーメッセージ
+      const okCount = results.filter(r => r.isAppropriate).length;
+      const ngCount = results.length - okCount;
+      addMessage('ai', `【判定完了】\n全${results.length}項目中\n✓ 適切: ${okCount}件\n✗ 要改善: ${ngCount}件`);
     } catch (err) {
       console.error(err);
       setError('判定に失敗しました');
       setAppState('select_scene');
+      setBatchProgress(null);
     }
   };
 
@@ -206,7 +268,7 @@ export default function RealEstateChecker() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkResults: checkResult ? [checkResult] : [], userMessage }),
+        body: JSON.stringify({ checkResults, userMessage }),
       });
       const data = await response.json();
       addMessage('ai', data.response);
@@ -219,11 +281,14 @@ export default function RealEstateChecker() {
     setAppState('initial');
     setUploadedFile(null);
     setSelectedSceneType(null);
-    setSelectedScene(null);
-    setCheckResult(null);
+    setSelectedScenes([]);
+    setCheckResults([]);
+    setBatchProgress(null);
     setMessages([]);
     setError(null);
   };
+
+  const availableScenes = scenes.filter(s => s.autoCheck !== '×');
 
   return (
     <div className="h-screen flex flex-col bg-white overflow-hidden">
@@ -272,25 +337,25 @@ export default function RealEstateChecker() {
             <div className="flex-1 relative overflow-hidden rounded-lg">
               {uploadedFile && <PdfViewer file={uploadedFile} />}
 
-              {/* Result Badge */}
-              {checkResult && appState === 'complete' && (
-                <div className="absolute top-3 left-3 z-10">
-                  <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
-                    checkResult.isAppropriate ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
-                  }`}>
-                    {checkResult.isAppropriate ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                    {checkResult.isAppropriate ? '適切' : '要改善'}
-                    <span className="opacity-75">{Math.round(checkResult.confidence * 100)}%</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Loading Overlay */}
-              {appState === 'analyzing' && (
-                <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10">
+              {/* Loading Overlay for Batch */}
+              {appState === 'analyzing' && batchProgress && (
+                <div className="absolute inset-0 bg-white/90 flex items-center justify-center z-10">
                   <div className="text-center">
-                    <Loader2 className="w-8 h-8 text-red-500 animate-spin mx-auto mb-2" />
-                    <p className="text-sm text-gray-600">判定中...</p>
+                    <Loader2 className="w-8 h-8 text-red-500 animate-spin mx-auto mb-3" />
+                    <p className="text-sm font-medium text-gray-900 mb-1">
+                      判定中... {batchProgress.current} / {batchProgress.total}
+                    </p>
+                    {batchProgress.currentScene && (
+                      <p className="text-xs text-gray-500 max-w-xs truncate">
+                        {batchProgress.currentScene.checkItem}
+                      </p>
+                    )}
+                    <div className="mt-3 w-48 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-red-500 transition-all duration-300"
+                        style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -306,7 +371,7 @@ export default function RealEstateChecker() {
           )}
         </div>
 
-        {/* Right: Selection & Chat */}
+        {/* Right: Selection & Results */}
         <div className="w-96 border-l border-gray-100 flex flex-col overflow-hidden">
           {/* Scene Selection */}
           {appState === 'select_scene' && (
@@ -340,9 +405,21 @@ export default function RealEstateChecker() {
                 </>
               ) : (
                 <>
-                  <button onClick={() => setSelectedSceneType(null)} className="text-xs text-gray-500 hover:text-gray-900 mb-3">
-                    ← 戻る
-                  </button>
+                  <div className="flex items-center justify-between mb-3">
+                    <button onClick={() => { setSelectedSceneType(null); setSelectedScenes([]); }} className="text-xs text-gray-500 hover:text-gray-900">
+                      ← 戻る
+                    </button>
+                    <button
+                      onClick={toggleSelectAll}
+                      className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1"
+                    >
+                      {selectedScenes.length === availableScenes.length ? (
+                        <><CheckSquare className="w-3.5 h-3.5" /> 全解除</>
+                      ) : (
+                        <><Square className="w-3.5 h-3.5" /> 全選択</>
+                      )}
+                    </button>
+                  </div>
                   <h3 className="text-sm font-medium text-gray-900 mb-3">{selectedSceneType}</h3>
                   {loadingScenes ? (
                     <div className="text-center py-6">
@@ -350,22 +427,53 @@ export default function RealEstateChecker() {
                     </div>
                   ) : (
                     <div className="space-y-1.5">
-                      {scenes.filter(s => s.autoCheck !== '×').map((scene) => (
-                        <button
-                          key={scene.id}
-                          onClick={() => handleSceneSelect(scene)}
-                          className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-red-500 hover:bg-red-50 transition-all"
-                        >
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">{scene.category}</span>
-                            {scene.autoCheck === '○' && (
-                              <span className="text-[10px] px-1.5 py-0.5 bg-green-100 rounded text-green-700">AI推奨</span>
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-900">{scene.checkItem}</p>
-                          <p className="text-[10px] text-gray-400 mt-0.5">{scene.subScene} | {scene.reason}</p>
-                        </button>
-                      ))}
+                      {availableScenes.map((scene) => {
+                        const isSelected = selectedScenes.some(s => s.id === scene.id);
+                        return (
+                          <button
+                            key={scene.id}
+                            onClick={() => toggleSceneSelection(scene)}
+                            className={`w-full text-left p-3 border rounded-lg transition-all ${
+                              isSelected
+                                ? 'border-red-500 bg-red-50'
+                                : 'border-gray-200 hover:border-gray-300'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <div className="mt-0.5">
+                                {isSelected ? (
+                                  <CheckSquare className="w-4 h-4 text-red-500" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-gray-300" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">{scene.category}</span>
+                                  {scene.autoCheck === '○' && (
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-green-100 rounded text-green-700">AI推奨</span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-900">{scene.checkItem}</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5 truncate">{scene.subScene}</p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* 一括判定ボタン */}
+                  {selectedScenes.length > 0 && (
+                    <div className="sticky bottom-0 pt-3 mt-3 border-t border-gray-100 bg-white">
+                      <button
+                        onClick={handleBatchCheck}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                      >
+                        <Play className="w-4 h-4" />
+                        {selectedScenes.length}項目をチェック
+                      </button>
                     </div>
                   )}
                 </>
@@ -373,33 +481,76 @@ export default function RealEstateChecker() {
             </div>
           )}
 
-          {/* Result & Chat */}
+          {/* Results & Chat */}
           {(appState === 'analyzing' || appState === 'complete') && (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-4 border-b border-gray-100">
                 <h3 className="text-sm font-medium text-gray-900">判定結果</h3>
-                {selectedScene && (
-                  <p className="text-xs text-gray-500 mt-0.5">{selectedScene.checkItem}</p>
+                {checkResults.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {checkResults.filter(r => r.isAppropriate).length}件適切 / {checkResults.filter(r => !r.isAppropriate).length}件要改善
+                  </p>
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {messages.map((m) => (
-                  <div key={m.id} className={m.role === 'user' ? 'text-right' : ''}>
-                    <div className={`inline-block max-w-[90%] p-3 rounded-lg text-sm ${
-                      m.role === 'user' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {m.text.split('\n').map((line, i) => (
-                        <React.Fragment key={i}>
-                          {line}
-                          {i < m.text.split('\n').length - 1 && <br />}
-                        </React.Fragment>
-                      ))}
-                    </div>
+              {/* Results List */}
+              {checkResults.length > 0 && (
+                <div className="flex-1 overflow-y-auto">
+                  <div className="divide-y divide-gray-100">
+                    {checkResults.map((result, idx) => (
+                      <div key={idx} className="p-3 hover:bg-gray-50">
+                        <div className="flex items-start gap-2">
+                          <div className="mt-0.5">
+                            {result.isAppropriate ? (
+                              <CheckCircle className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <XCircle className="w-4 h-4 text-red-500" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">
+                                {result.scene.category}
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                {Math.round(result.confidence * 100)}%
+                              </span>
+                            </div>
+                            <p className="text-xs font-medium text-gray-900 mb-0.5">{result.scene.checkItem}</p>
+                            <p className="text-[10px] text-gray-500 line-clamp-2">{result.reason}</p>
+                            {result.suggestions && result.suggestions.length > 0 && !result.isAppropriate && (
+                              <p className="text-[10px] text-red-600 mt-1">
+                                → {result.suggestions[0]}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
+                </div>
+              )}
+
+              {/* Chat Messages */}
+              {messages.length > 0 && checkResults.length === 0 && (
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {messages.map((m) => (
+                    <div key={m.id} className={m.role === 'user' ? 'text-right' : ''}>
+                      <div className={`inline-block max-w-[90%] p-3 rounded-lg text-sm ${
+                        m.role === 'user' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {m.text.split('\n').map((line, i) => (
+                          <React.Fragment key={i}>
+                            {line}
+                            {i < m.text.split('\n').length - 1 && <br />}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
 
               {appState === 'complete' && (
                 <form onSubmit={handleSend} className="p-4 border-t border-gray-100 flex gap-2">

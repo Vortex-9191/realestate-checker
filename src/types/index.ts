@@ -64,6 +64,14 @@ export type AppState =
   | 'analyzing'         // 判定中
   | 'complete';         // 完了
 
+// 一括判定の進捗状態
+export interface BatchCheckProgress {
+  total: number;
+  current: number;
+  currentScene: Scene | null;
+  results: ImageCheckResult[];
+}
+
 // PDF解析結果
 export interface PdfAnalysisResult {
   detectedType: AdType;
