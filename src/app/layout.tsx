@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'パース図ガイドラインチェッカー | AI Guideline Check System',
   description: 'AIによるパース図のガイドラインチェックツール',
+  robots: 'noindex, nofollow',
 };
 
 export default function RootLayout({
